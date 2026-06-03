@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>校园网实时联动控制台</title>
+  <link rel="stylesheet" href="styles.css?v=live2">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Mininet Live Campus Network</p>
+      <h1>校园网实时联动控制台</h1>
+    </div>
+    <div class="runtime-bar">
+      <span id="backendBadge" class="badge warn">后端连接中</span>
+      <span id="topologyBadge" class="badge idle">拓扑未启动</span>
+      <button id="startTopology" type="button">启动拓扑</button>
+      <button id="stopTopology" class="secondary" type="button">停止拓扑</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="topology-panel" aria-label="校园网拓扑">
+      <div class="panel-head">
+        <div>
+          <h2>真实拓扑路径</h2>
+          <p id="pathSummary">启动拓扑后，可执行真实 ping、Web/FTP 访问和主机间消息发送。</p>
+        </div>
+        <div class="legend">
+          <span><i class="legend-dot router"></i>核心路由</span>
+          <span><i class="legend-dot switch"></i>接入交换</span>
+          <span><i class="legend-dot host"></i>主机</span>
+          <span><i class="legend-dot server"></i>服务器</span>
+          <span><i class="legend-dot denied"></i>失败/阻断</span>
+        </div>
+      </div>
+      <svg id="topologySvg" viewBox="0 0 1160 720" role="img" aria-label="校园网拓扑图"></svg>
+    </section>
+
+    <aside class="control-panel" aria-label="实时操作">
+      <section class="tool-block">
+        <h2>真实访问测试</h2>
+        <label>
+          源主机
+          <select id="actionSource"></select>
+        </label>
+        <label>
+          目标主机
+          <select id="actionTarget"></select>
+        </label>
+        <label>
+          操作类型
+          <select id="actionType">
+            <option value="ping">ICMP ping</option>
+            <option value="web">访问 Web 页面</option>
+            <option value="ftp">下载 FTP 文件</option>
+          </select>
+        </label>
+        <button id="runAction" type="button">执行真实测试</button>
+      </section>
+
+      <section class="tool-block">
+        <h2>主机间消息发送</h2>
+        <div class="split">
+          <label>
+            发送方
+            <select id="messageSource"></select>
+          </label>
+          <label>
+            接收方
+            <select id="messageTarget"></select>
+          </label>
+        </div>
+        <label>
+          消息模板
+          <select id="messageTemplate"></select>
+        </label>
+        <label>
+          消息内容
+          <textarea id="messageText" rows="4"></textarea>
+        </label>
+        <button id="sendMessage" type="button">发送真实消息</button>
+      </section>
+
+      <section class="tool-block result-block">
+        <h2>执行结果</h2>
+        <p class="result-title" id="resultTitle">等待操作</p>
+        <p id="resultReason">结果会来自 WSL 中真实运行的 Mininet 拓扑。</p>
+      </section>
+    </aside>
+  </main>
+
+  <section class="lower-grid">
+    <section class="output-panel">
+      <div class="panel-head compact">
+        <div>
+          <h2>Mininet 输出</h2>
+          <p>这里显示真实命令、退出状态、服务响应和消息接收内容。</p>
+        </div>
+        <button id="runTests" class="secondary small" type="button">运行自动测试</button>
+      </div>
+      <pre id="terminalOutput">尚未执行命令。</pre>
+    </section>
+
+    <section class="output-panel">
+      <div class="panel-head compact">
+        <div>
+          <h2>节点信息</h2>
+          <p>点击拓扑中的节点查看区域、地址和服务。</p>
+        </div>
+      </div>
+      <dl id="nodeDetails" class="node-details"></dl>
+    </section>
+
+    <section class="output-panel">
+      <div class="panel-head compact">
+        <div>
+          <h2>事件记录</h2>
+          <p>后端启动、停止、测试和消息发送记录。</p>
+        </div>
+      </div>
+      <div id="eventLog" class="event-log"></div>
+    </section>
+  </section>
+
+  <section class="scenario-band">
+    <div>
+      <h2>快速真实场景</h2>
+      <p>这些按钮会直接调用后端 API，在 Mininet 主机中执行对应命令。</p>
+    </div>
+    <div id="scenarioList" class="scenario-list"></div>
+  </section>
+
+  <section class="policy-band">
+    <div>
+      <h2>ACL 策略</h2>
+      <p>访问控制在核心路由器 <code>r_core</code> 的 <code>iptables</code> 规则中真实生效。</p>
+    </div>
+    <div id="policyGrid" class="policy-grid"></div>
+  </section>
+
+  <script src="app.js?v=live2"></script>
+</body>
+</html>
