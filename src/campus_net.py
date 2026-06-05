@@ -160,6 +160,7 @@ class CampusTopo(Topo):
                 cls=TCLink,
                 bw=100 if area_key != "server" else 1000,
                 delay="2ms" if area_key != "external" else "20ms",
+                use_tbf=True,
             )
             gateway_ip = area["gateway"].split("/")[0]
             for host_name, host_ip in area["hosts"]:
@@ -168,7 +169,7 @@ class CampusTopo(Topo):
                     ip=host_ip,
                     defaultRoute=f"via {gateway_ip}",
                 )
-                self.addLink(host, switch, cls=TCLink, bw=100, delay="1ms")
+                self.addLink(host, switch, cls=TCLink, bw=100, delay="1ms", use_tbf=True)
 
 
 def configure_security(router: Node) -> None:
