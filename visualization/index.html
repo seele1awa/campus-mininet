@@ -55,6 +55,7 @@
             <option value="ping">ICMP ping</option>
             <option value="web">访问 Web 页面</option>
             <option value="ftp">下载 FTP 文件</option>
+            <option value="perf">带宽测试 iperf3</option>
           </select>
         </label>
         <button id="runAction" type="button">执行真实测试</button>
@@ -122,6 +123,17 @@
       </div>
       <div id="eventLog" class="event-log"></div>
     </section>
+  </section>
+
+  <section class="audit-band">
+    <div class="panel-head compact">
+      <div>
+        <h2>安全审计</h2>
+        <p>记录真实访问、ACL 阻断、外部访问和性能测试，审计日志同步写入 <code>/tmp/campus_audit.log</code>。</p>
+      </div>
+      <div id="auditSummary" class="audit-summary"></div>
+    </div>
+    <div id="auditLog" class="audit-log"></div>
   </section>
 
   <section class="scenario-band">

@@ -12,4 +12,3 @@ nohup ./run_live_server.sh "$PORT" > "$LOG_FILE" 2>&1 &
 echo "$!" > "$PID_FILE"
 echo "pid=$(cat "$PID_FILE")"
 echo "log=$LOG_FILE"
-
