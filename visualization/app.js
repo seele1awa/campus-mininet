@@ -1,6 +1,6 @@
 const model = {
-  coreSwitch: { id: "s_core", label: "s_core", role: "core-switch", ip: "trunk", x: 580, y: 300 },
-  router: { id: "r_core", label: "核心路由", role: "router", ip: "VLAN 子接口网关", x: 580, y: 378 },
+  coreSwitch: { id: "s_core", label: "s_core", role: "core-switch", ip: "trunk", x: 640, y: 330 },
+  router: { id: "r_core", label: "核心路由", role: "router", ip: "VLAN 子接口网关", x: 640, y: 430 },
   areas: [
     {
       id: "student",
@@ -8,13 +8,14 @@ const model = {
       subnet: "10.10.10.0/24",
       gateway: "10.10.10.1",
       vlan: 10,
-      switch: { id: "s_stu", label: "s_stu", x: 210, y: 180 },
+      switch: { id: "s_stu", label: "s_stu", x: 220, y: 200 },
       hosts: [
-        { id: "stu1", label: "stu1", ip: "10.10.10.11", x: 110, y: 95 },
-        { id: "stu2", label: "stu2", ip: "10.10.10.12", x: 210, y: 75 },
-        { id: "stu3", label: "stu3", ip: "10.10.10.13", x: 310, y: 95 },
+        { id: "stu1", label: "stu1", ip: "10.10.10.11", x: 105, y: 98 },
+        { id: "stu2", label: "stu2", ip: "10.10.10.12", x: 220, y: 78 },
+        { id: "stu3", label: "stu3", ip: "10.10.10.13", x: 335, y: 98 },
+        { id: "dhcp_stu1", label: "dhcp_stu1", ip: "DHCP", dhcp: true, x: 220, y: 140 },
       ],
-      box: { x: 45, y: 42, width: 330, height: 190 },
+      box: { x: 40, y: 38, width: 360, height: 220 },
     },
     {
       id: "teaching",
@@ -22,12 +23,12 @@ const model = {
       subnet: "10.10.20.0/24",
       gateway: "10.10.20.1",
       vlan: 20,
-      switch: { id: "s_teach", label: "s_teach", x: 580, y: 155 },
+      switch: { id: "s_teach", label: "s_teach", x: 590, y: 180 },
       hosts: [
-        { id: "teach1", label: "teach1", ip: "10.10.20.11", x: 505, y: 72 },
-        { id: "teach2", label: "teach2", ip: "10.10.20.12", x: 655, y: 72 },
+        { id: "teach1", label: "teach1", ip: "10.10.20.11", x: 520, y: 92 },
+        { id: "teach2", label: "teach2", ip: "10.10.20.12", x: 660, y: 92 },
       ],
-      box: { x: 430, y: 42, width: 300, height: 180 },
+      box: { x: 450, y: 38, width: 280, height: 210 },
     },
     {
       id: "library",
@@ -35,12 +36,12 @@ const model = {
       subnet: "10.10.30.0/24",
       gateway: "10.10.30.1",
       vlan: 30,
-      switch: { id: "s_lib", label: "s_lib", x: 940, y: 180 },
+      switch: { id: "s_lib", label: "s_lib", x: 940, y: 200 },
       hosts: [
-        { id: "lib1", label: "lib1", ip: "10.10.30.11", x: 860, y: 95 },
-        { id: "lib2", label: "lib2", ip: "10.10.30.12", x: 1020, y: 95 },
+        { id: "lib1", label: "lib1", ip: "10.10.30.11", x: 870, y: 98 },
+        { id: "lib2", label: "lib2", ip: "10.10.30.12", x: 1010, y: 98 },
       ],
-      box: { x: 795, y: 42, width: 300, height: 190 },
+      box: { x: 790, y: 38, width: 300, height: 220 },
     },
     {
       id: "office",
@@ -48,12 +49,12 @@ const model = {
       subnet: "10.10.40.0/24",
       gateway: "10.10.40.1",
       vlan: 40,
-      switch: { id: "s_office", label: "s_office", x: 190, y: 520 },
+      switch: { id: "s_office", label: "s_office", x: 180, y: 610 },
       hosts: [
-        { id: "office1", label: "office1", ip: "10.10.40.11", x: 105, y: 610 },
-        { id: "office2", label: "office2", ip: "10.10.40.12", x: 275, y: 610 },
+        { id: "office1", label: "office1", ip: "10.10.40.11", x: 105, y: 705 },
+        { id: "office2", label: "office2", ip: "10.10.40.12", x: 255, y: 705 },
       ],
-      box: { x: 45, y: 470, width: 300, height: 185 },
+      box: { x: 40, y: 550, width: 280, height: 210 },
     },
     {
       id: "hr",
@@ -61,9 +62,9 @@ const model = {
       subnet: "10.10.50.0/24",
       gateway: "10.10.50.1",
       vlan: 50,
-      switch: { id: "s_hr", label: "s_hr", x: 455, y: 548 },
-      hosts: [{ id: "hr1", label: "hr1", ip: "10.10.50.11", x: 455, y: 625 }],
-      box: { x: 375, y: 492, width: 160, height: 170 },
+      switch: { id: "s_hr", label: "s_hr", x: 430, y: 610 },
+      hosts: [{ id: "hr1", label: "hr1", ip: "10.10.50.11", x: 430, y: 705 }],
+      box: { x: 345, y: 550, width: 170, height: 210 },
     },
     {
       id: "finance",
@@ -71,9 +72,20 @@ const model = {
       subnet: "10.10.60.0/24",
       gateway: "10.10.60.1",
       vlan: 60,
-      switch: { id: "s_fin", label: "s_fin", x: 705, y: 548 },
-      hosts: [{ id: "fin1", label: "fin1", ip: "10.10.60.11", x: 705, y: 625 }],
-      box: { x: 625, y: 492, width: 160, height: 170 },
+      switch: { id: "s_fin", label: "s_fin", x: 640, y: 610 },
+      hosts: [{ id: "fin1", label: "fin1", ip: "10.10.60.11", x: 640, y: 705 }],
+      box: { x: 555, y: 550, width: 170, height: 210 },
+    },
+    {
+      id: "guest",
+      label: "访客网络",
+      subnet: "10.10.70.0/24",
+      gateway: "10.10.70.1",
+      vlan: 70,
+      dhcp: true,
+      switch: { id: "s_guest", label: "s_guest", x: 850, y: 610 },
+      hosts: [{ id: "guest1", label: "guest1", ip: "DHCP", dhcp: true, x: 850, y: 705 }],
+      box: { x: 765, y: 550, width: 170, height: 210 },
     },
     {
       id: "server",
@@ -81,12 +93,12 @@ const model = {
       subnet: "10.10.100.0/24",
       gateway: "10.10.100.1",
       vlan: 100,
-      switch: { id: "s_srv", label: "s_srv", x: 970, y: 520 },
+      switch: { id: "s_srv", label: "s_srv", x: 1110, y: 610 },
       hosts: [
-        { id: "web", label: "web", ip: "10.10.100.10", role: "server", service: "HTTP:80", x: 890, y: 610 },
-        { id: "ftp", label: "ftp", ip: "10.10.100.20", role: "server", service: "FTP:21", x: 1050, y: 610 },
+        { id: "web", label: "web", ip: "10.10.100.10", role: "server", service: "HTTP:80", x: 1035, y: 705 },
+        { id: "ftp", label: "ftp", ip: "10.10.100.20", role: "server", service: "FTP:21", x: 1185, y: 705 },
       ],
-      box: { x: 825, y: 470, width: 290, height: 185 },
+      box: { x: 970, y: 550, width: 280, height: 210 },
     },
     {
       id: "external",
@@ -94,8 +106,8 @@ const model = {
       subnet: "203.0.113.0/24",
       gateway: "203.0.113.1",
       vlan: 200,
-      switch: { id: "s_ext", label: "s_ext", x: 580, y: 515 },
-      hosts: [{ id: "attacker1", label: "attacker1", ip: "203.0.113.100", x: 580, y: 620 }],
+      switch: { id: "s_ext", label: "s_ext", x: 1145, y: 350 },
+      hosts: [{ id: "attacker1", label: "attacker1", ip: "203.0.113.100", x: 1145, y: 455 }],
       hiddenBox: true,
     },
   ],
@@ -115,6 +127,27 @@ const fallbackTemplates = [
   { id: "custom", label: "自定义消息", text: "请输入自定义消息。" },
 ];
 
+const staticDnsRecords = {
+  "web.campus.local": "10.10.100.10",
+  "ftp.campus.local": "10.10.100.20",
+  "hr.campus.local": "10.10.50.11",
+  "finance.campus.local": "10.10.60.11",
+};
+
+const dnsTargets = {
+  "web.campus.local": "web",
+  "ftp.campus.local": "ftp",
+  "hr.campus.local": "hr1",
+  "finance.campus.local": "fin1",
+};
+
+const faultTargets = [
+  { id: "s_stu", label: "学生区上联" },
+  { id: "s_guest", label: "访客区上联" },
+  { id: "web", label: "Web 服务" },
+  { id: "ftp", label: "FTP 服务" },
+];
+
 const quickScenarios = [
   { label: "宿舍内部 ping", action: "ping", source: "stu1", target: "stu2" },
   { label: "宿舍到教学楼 ping", action: "ping", source: "stu1", target: "teach1" },
@@ -124,6 +157,19 @@ const quickScenarios = [
   { label: "办公楼发给财务处", action: "message", source: "office1", target: "fin1", message: "办公楼发送审批数据：请财务处确认项目经费。" },
   { label: "学生到服务器性能", action: "perf", source: "stu1", target: "web" },
   { label: "服务器区内部高速", action: "perf", source: "web", target: "ftp" },
+  { label: "访客 DHCP 获取地址", action: "dhcp", source: "guest1", target: "guest1" },
+  { label: "学生 DHCP 获取地址", action: "dhcp", source: "dhcp_stu1", target: "dhcp_stu1" },
+  { label: "学生解析 Web 域名", action: "dns", source: "stu1", target: "web.campus.local" },
+  { label: "学生解析 FTP 域名", action: "dns", source: "stu1", target: "ftp.campus.local" },
+  { label: "访客域名访问 Web", action: "web", source: "guest1", target: "web.campus.local" },
+  { label: "访客下载 FTP", action: "ftp", source: "guest1", target: "ftp" },
+  { label: "访客访问办公区", action: "ping", source: "guest1", target: "office1" },
+  { label: "断开学生区上联", action: "fault_down", source: "stu1", target: "s_stu" },
+  { label: "恢复学生区上联", action: "fault_up", source: "stu1", target: "s_stu" },
+  { label: "停止 Web 服务", action: "fault_down", source: "stu1", target: "web" },
+  { label: "恢复 Web 服务", action: "fault_up", source: "stu1", target: "web" },
+  { label: "停止 FTP 服务", action: "fault_down", source: "stu1", target: "ftp" },
+  { label: "恢复 FTP 服务", action: "fault_up", source: "stu1", target: "ftp" },
 ];
 
 const svg = document.getElementById("topologySvg");
@@ -142,6 +188,8 @@ const resultReason = document.getElementById("resultReason");
 const terminalOutput = document.getElementById("terminalOutput");
 const nodeDetails = document.getElementById("nodeDetails");
 const eventLog = document.getElementById("eventLog");
+const dhcpDnsStatus = document.getElementById("dhcpDnsStatus");
+const faultStatus = document.getElementById("faultStatus");
 const auditLog = document.getElementById("auditLog");
 const auditSummary = document.getElementById("auditSummary");
 const policyGrid = document.getElementById("policyGrid");
@@ -155,6 +203,10 @@ let topologyRunning = false;
 let templates = fallbackTemplates;
 let policies = fallbackPolicies;
 let templateSignature = "";
+let dnsRecords = { ...staticDnsRecords };
+let dhcpSummary = [];
+let activeFaults = [];
+let activePath = null;
 
 function addNode(node, areaId, role) {
   nodes.set(node.id, { ...node, areaId, role: role || node.role || "host" });
@@ -182,6 +234,7 @@ function mergeTopology(status) {
     area.vlan = nextArea.vlan ?? area.vlan;
     area.gateway = nextArea.gateway || area.gateway;
     area.subnet = nextArea.subnet || area.subnet;
+    area.dhcp = Boolean(nextArea.dhcp);
     nextArea.hosts?.forEach((nextHost) => {
       const host = area.hosts.find((item) => item.id === nextHost.id);
       if (host) Object.assign(host, nextHost);
@@ -197,6 +250,10 @@ function areaForNode(id) {
   return model.areas.find((area) => area.id === nodes.get(id)?.areaId);
 }
 
+function visualNodeId(id) {
+  return dnsTargets[id] || id;
+}
+
 function hostNodes() {
   return [...nodes.values()].filter((node) => node.role === "host" || node.role === "server");
 }
@@ -205,9 +262,16 @@ function setHostOptions() {
   const options = hostNodes()
     .map((node) => `<option value="${node.id}">${node.label} - ${node.ip}</option>`)
     .join("");
-  [actionSource, actionTarget, messageSource, messageTarget].forEach((select) => {
+  [actionSource, messageSource, messageTarget].forEach((select) => {
     select.innerHTML = options;
   });
+  const domainOptions = Object.entries(dnsRecords)
+    .map(([domain, ip]) => `<option value="${domain}">${domain} - ${ip}</option>`)
+    .join("");
+  const faultOptions = faultTargets
+    .map((item) => `<option value="${item.id}">${item.label} - ${item.id}</option>`)
+    .join("");
+  actionTarget.innerHTML = [options, domainOptions, faultOptions].filter(Boolean).join("");
   actionSource.value = "stu1";
   actionTarget.value = "web";
   messageSource.value = "office1";
@@ -241,6 +305,14 @@ function svgEl(name, attrs = {}) {
   return el;
 }
 
+function hasFault(target) {
+  return activeFaults.some((fault) => fault.target === target);
+}
+
+function isFaultedLink(link) {
+  return activeFaults.some((fault) => fault.type === "link" && (link.a === fault.target || link.b === fault.target));
+}
+
 function renderTopology() {
   svg.innerHTML = "";
 
@@ -267,7 +339,7 @@ function renderTopology() {
     const a = nodes.get(link.a);
     const b = nodes.get(link.b);
     svg.appendChild(svgEl("line", {
-      class: "svg-link",
+      class: `svg-link ${isFaultedLink(link) ? "fault" : ""}`,
       id: `link-${link.id}`,
       x1: a.x,
       y1: a.y,
@@ -278,7 +350,7 @@ function renderTopology() {
 
   [...nodes.values()].forEach((node) => {
     const group = svgEl("g", {
-      class: `node-group ${node.id === selectedNode ? "selected" : ""}`,
+      class: `node-group ${node.id === selectedNode ? "selected" : ""} ${hasFault(node.id) ? "fault" : ""}`,
       id: `node-${node.id}`,
       tabindex: "0",
     });
@@ -309,6 +381,7 @@ function renderTopology() {
       svg.appendChild(areaLabel);
     }
   });
+  restoreActivePath();
 }
 
 function selectNode(id) {
@@ -328,6 +401,9 @@ function renderNodeDetails(id) {
   ];
   if (area) {
     details.push(["VLAN", area.vlan], ["端口模式", node.portMode || (node.role === "switch" ? "trunk" : "access")], ["网段", area.subnet], ["网关", area.gateway]);
+    if (area.dhcp || node.dhcp) details.push(["DHCP", node.dhcp ? "动态地址主机" : "区域启用地址池"]);
+    details.push(["DNS", area.gateway]);
+    if (area.id === "guest") details.push(["访客策略", "仅允许访问 Web/FTP 服务区"]);
   } else if (node.role === "core-switch") {
     details.push(["端口模式", "trunk"], ["承载 VLAN", model.areas.map((item) => item.vlan).join(", ")]);
   }
@@ -338,9 +414,13 @@ function renderNodeDetails(id) {
 }
 
 function pathBetween(source, target) {
+  target = visualNodeId(target);
   const sourceArea = areaForNode(source);
   const targetArea = areaForNode(target);
   if (!sourceArea || !targetArea) return [];
+  if (nodes.get(target)?.role === "switch") {
+    return sourceArea.id === targetArea.id ? [source, target] : [source, sourceArea.switch.id, "s_core", target];
+  }
   if (sourceArea.id === targetArea.id) {
     return [source, sourceArea.switch.id, target];
   }
@@ -351,17 +431,20 @@ function clearLinkStates() {
   document.querySelectorAll(".svg-link").forEach((link) => {
     link.classList.remove("active", "denied");
   });
+  document.querySelectorAll(".node-group.path-node").forEach((node) => {
+    node.classList.remove("path-node");
+  });
 }
 
 function linkIdFor(a, b) {
   return `link-${a}-${b}`;
 }
 
-function markPath(path, ok) {
+function applyPathHighlight(path, ok) {
   clearLinkStates();
   path.forEach((id) => {
     const node = document.getElementById(`node-${id}`);
-    if (node) node.classList.add("selected");
+    if (node) node.classList.add("path-node");
   });
   for (let index = 0; index < path.length - 1; index += 1) {
     const a = path[index];
@@ -370,6 +453,17 @@ function markPath(path, ok) {
     if (link) {
       link.classList.add(ok ? "active" : "denied");
     }
+  }
+}
+
+function markPath(path, ok) {
+  activePath = { path, ok };
+  applyPathHighlight(path, ok);
+}
+
+function restoreActivePath() {
+  if (activePath?.path?.length) {
+    applyPathHighlight(activePath.path, activePath.ok);
   }
 }
 
@@ -447,6 +541,31 @@ function renderAudit(audit = [], summary = {}) {
     .join("");
 }
 
+function renderInfraStatus() {
+  const dhcpItems = dhcpSummary.map((item) => `
+    <article class="status-item">
+      <strong>${item.areaLabel} VLAN ${item.vlan}</strong>
+      <p>地址池 ${item.range}，网关/DNS ${item.gateway}</p>
+    </article>
+  `);
+  const dnsItems = Object.entries(dnsRecords).map(([domain, ip]) => `
+    <article class="status-item">
+      <strong>${domain}</strong>
+      <p>${ip}</p>
+    </article>
+  `);
+  dhcpDnsStatus.innerHTML = [...dhcpItems, ...dnsItems].join("") || '<article class="status-item"><strong>暂无状态</strong><p>启动后端后显示 DHCP/DNS 信息。</p></article>';
+
+  faultStatus.innerHTML = activeFaults.length
+    ? activeFaults.map((fault) => `
+        <article class="status-item fault">
+          <strong>${fault.target}</strong>
+          <p>${fault.detail} 于 ${fault.time} 进入 ${fault.state}</p>
+        </article>
+      `).join("")
+    : '<article class="status-item"><strong>无活动故障</strong><p>链路和服务处于正常状态。</p></article>';
+}
+
 async function refreshStatus() {
   try {
     const status = await api("/api/status");
@@ -464,6 +583,11 @@ async function refreshStatus() {
     renderPolicies();
     renderEvents(status.events || []);
     renderAudit(status.audit || [], status.auditSummary || {});
+    dnsRecords = status.dnsRecords || dnsRecords;
+    dhcpSummary = status.dhcpSummary || [];
+    activeFaults = status.faults || [];
+    renderInfraStatus();
+    renderTopology();
     updateBadges();
   } catch (error) {
     backendOnline = false;
@@ -471,6 +595,7 @@ async function refreshStatus() {
     updateBadges();
     renderEvents([]);
     renderAudit([], {});
+    renderInfraStatus();
   }
 }
 
@@ -487,6 +612,15 @@ function commandOutput(result) {
   }
   if (result.action === "perf") {
     parts.push(`吞吐量: ${result.mbps ?? "-"} Mbps`, `性能预期: ${result.expectedProfile || "-"}`);
+  }
+  if (result.action === "dhcp") {
+    parts.push(`分配地址: ${result.assignedIp || "-"}`, `网关: ${result.gateway || "-"}`, `DNS: ${result.dns || "-"}`, `dnsmasq 状态: ${result.dnsmasqStatus ?? "-"}`);
+  }
+  if (result.action === "dns") {
+    parts.push(`DNS 服务器: ${result.dnsServer || "-"}`, `解析结果: ${result.resolvedIp || "-"}`);
+  }
+  if (result.action === "fault_down" || result.action === "fault_up") {
+    parts.push(`故障状态: ${result.output || "-"}`);
   }
   parts.push("", "输出:", result.output || "(无输出)");
   if (result.received) {
@@ -507,6 +641,16 @@ function showResult(result) {
     resultReason.textContent = ok
       ? `${result.target} 实际收到来自 ${result.source} 的消息：“${payload?.message || result.message}”。`
       : "消息没有到达目标主机，可能被 ACL 阻断或目标服务不可达。";
+  } else if (result.action === "dhcp") {
+    resultReason.textContent = ok
+      ? `${result.source} 通过 DHCP 获得 ${result.assignedIp}，默认网关和 DNS 为 ${result.gateway}。`
+      : "DHCP 获取地址失败，请确认 dnsmasq 服务和 VLAN 接入链路正常。";
+  } else if (result.action === "dns") {
+    resultReason.textContent = ok
+      ? `${result.source} 通过 ${result.dnsServer} 将 ${result.target} 解析为 ${result.resolvedIp}。`
+      : "DNS 解析失败，请确认 r_core 上 dnsmasq 服务正常。";
+  } else if (result.action === "fault_down" || result.action === "fault_up") {
+    resultReason.textContent = result.output || (ok ? "故障操作完成。" : "故障操作失败。");
   } else if (result.action === "perf") {
     resultReason.textContent = ok
       ? `iperf3 实测吞吐量 ${result.mbps} Mbps。${result.expectedProfile}`
@@ -519,10 +663,11 @@ function showResult(result) {
     resultReason.textContent = ok ? "ICMP 报文在真实 Mininet 拓扑中到达目标。" : "ICMP 报文未到达目标，ACL 或链路策略生效。";
   }
   terminalOutput.textContent = commandOutput(result);
-  selectNode(result.target);
+  const targetNode = visualNodeId(result.target);
+  if (nodes.has(targetNode)) selectNode(targetNode);
   const path = pathBetween(result.source, result.target);
   markPath(path, ok);
-  pathSummary.textContent = `${nodes.get(result.source)?.label || result.source} -> ${nodes.get(result.target)?.label || result.target}: ${path.map((id) => nodes.get(id)?.label || id).join(" -> ")}`;
+  pathSummary.textContent = `${nodes.get(result.source)?.label || result.source} -> ${nodes.get(targetNode)?.label || result.target}: ${path.map((id) => nodes.get(id)?.label || id).join(" -> ")}`;
 }
 
 async function runAction(action, source, target, message) {
@@ -547,6 +692,7 @@ async function runAction(action, source, target, message) {
 async function startTopology() {
   setBusy(true);
   try {
+    activePath = null;
     const result = await api("/api/start", { method: "POST", body: "{}" });
     terminalOutput.textContent = result.message;
     await refreshStatus();
@@ -562,6 +708,7 @@ async function stopTopology() {
   try {
     const result = await api("/api/stop", { method: "POST", body: "{}" });
     terminalOutput.textContent = result.message;
+    activePath = null;
     clearLinkStates();
     await refreshStatus();
   } catch (error) {
@@ -616,6 +763,7 @@ async function init() {
   renderTopology();
   renderPolicies();
   renderScenarios();
+  renderInfraStatus();
   renderNodeDetails(selectedNode);
   bindEvents();
   await refreshStatus();

@@ -29,7 +29,7 @@ sudo ./run_campus_net.sh
 - 在核心路由器创建 `r_core-eth0.<vlan_id>` 子接口作为各 VLAN 网关。
 - 开启核心路由器 IPv4 转发。
 - 配置 `iptables` ACL。
-- 启动 Web/FTP 服务。
+- 启动 Web/FTP、DHCP 和 DNS 服务。
 
 ## 3. 手工测试命令
 
@@ -40,9 +40,10 @@ s_stu ovs-vsctl get port s_stu-eth1 tag
 s_stu ovs-vsctl get port s_stu-eth9 trunks
 s_core ovs-vsctl get port s_core-eth1 trunks
 r_core ip link show r_core-eth0.10
+r_core ip link show r_core-eth0.70
 ```
 
-预期：`s_stu-eth1` 为 access VLAN 10，`s_stu-eth9` 和 `s_core-eth1` 承载 VLAN 10，`r_core-eth0.10` 子接口存在。
+预期：`s_stu-eth1` 为 access VLAN 10，`s_stu-eth9` 和 `s_core-eth1` 承载 VLAN 10，`r_core-eth0.10` 与访客网络 `r_core-eth0.70` 子接口存在。
 
 ### 3.1 部门内部二层互通
 
@@ -109,6 +110,55 @@ attacker1 ping -c 2 hr1
 
 预期：失败，说明外部模拟区无法进入校园内网。
 
+### 3.8 DHCP 地址获取
+
+```bash
+guest1 dhclient -4 -v -1 guest1-eth0
+guest1 ip -4 addr show guest1-eth0
+guest1 ip route show default
+```
+
+预期：`guest1` 获得 `10.10.70.100-199` 范围内地址，默认网关为 `10.10.70.1`。
+
+### 3.9 DNS 校园域名解析
+
+```bash
+stu1 dig +short @10.10.10.1 web.campus.local
+stu1 dig +short @10.10.10.1 ftp.campus.local
+```
+
+预期：分别返回 `10.10.100.10` 和 `10.10.100.20`。
+
+### 3.10 访客网络隔离
+
+```bash
+guest1 curl -s http://10.10.100.10
+guest1 curl -s ftp://10.10.100.20/README.txt
+guest1 ping -c 2 office1
+guest1 ping -c 2 hr1
+```
+
+预期：访客可以访问 Web/FTP，不能访问办公楼、人事处等校园内部区域。
+
+### 3.11 故障模拟
+
+实时控制台点击“断开学生区上联”后测试：
+
+```bash
+stu1 ping -c 2 web
+```
+
+预期：失败。再点击“恢复学生区上联”后重复测试，预期成功。
+
+点击“停止 Web 服务”后测试：
+
+```bash
+stu1 ping -c 2 web
+stu1 curl -s http://10.10.100.10
+```
+
+预期：`ping` 仍可成功，`curl` 失败，用于区分网络链路故障和应用服务故障。
+
 ## 4. 自动测试
 
 ```bash
@@ -127,6 +177,10 @@ sudo ./run_campus_net.sh --test
 [PASS] 办公楼访问人事处允许
 [PASS] 办公楼访问财务处允许
 [PASS] 外部主机访问 Web 被阻断
+[PASS] 访客主机 DHCP 获取地址
+[PASS] 学生主机解析 Web 校园域名
+[PASS] 访客访问 Web 服务允许
+[PASS] 访客访问办公楼被隔离
 ```
 
 ## 5. 性能扩展测试
@@ -176,6 +230,12 @@ http://127.0.0.1:8088
 4. 学生访问 FTP。
 5. 学生访问人事处。
 6. 办公楼向财务处发送业务消息。
+7. 访客 DHCP 获取地址。
+8. 学生解析 Web 域名。
+9. 访客通过域名访问 Web。
+10. 访客访问办公区被隔离。
+11. 断开学生区上联，再恢复学生区上联。
+12. 停止 Web 服务，再恢复 Web 服务。
 
 ## 7. 实时消息发送测试
 
@@ -207,7 +267,7 @@ http://127.0.0.1:8088
 
 ## 8. 实时控制台自动测试
 
-在页面点击“运行自动测试”，预期 `11/11` 通过：
+在页面点击“运行自动测试”，预期 `15/15` 通过：
 
 ```text
 PASS 宿舍区内部二层互通
@@ -219,6 +279,10 @@ PASS 教学楼访问财务处被限制
 PASS 办公楼访问人事处允许
 PASS 办公楼访问财务处允许
 PASS 外部主机访问 Web 被阻断
+PASS 访客主机 DHCP 获取地址
+PASS 学生主机解析 Web 校园域名
+PASS 访客通过域名访问 Web
+PASS 访客访问办公楼被隔离
 PASS 办公楼向财务处发送业务消息
 PASS 学生向人事处发送消息被拦截
 ```
@@ -233,3 +297,5 @@ PASS 学生向人事处发送消息被拦截
 2. 执行 `attacker1 -> web` ping，预期失败，审计级别为高风险，原因为外部模拟区访问校园内网。
 3. 执行 `office1 -> fin1` ping 或消息发送，预期成功，审计级别为正常。
 4. 执行 `stu1 -> web` 与 `web -> ftp` 性能测试，预期审计面板记录 `perf` 动作和吞吐量结果。
+5. 执行 `guest1 -> office1`，预期失败，审计级别为高风险，原因为访客网络访问校园内部区域。
+6. 执行故障制造和恢复，预期审计面板记录 `fault_down` 与 `fault_up` 管理操作。

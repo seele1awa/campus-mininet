@@ -46,7 +46,7 @@ chmod +x install_mininet_wsl.sh run_campus_net.sh
 ./install_mininet_wsl.sh
 ```
 
-安装脚本需要 `sudo` 权限，会安装 Mininet、Open vSwitch、curl、iperf3 等课程项目常用工具。
+安装脚本需要 `sudo` 权限，会安装 Mininet、Open vSwitch、curl、iperf3、dnsmasq、dnsutils、dhclient 等课程项目常用工具。
 
 ## 运行方式一：Mininet CLI
 
@@ -105,6 +105,8 @@ sudo ./stop_live_server.sh
 - 启动/停止真实 Mininet 拓扑。
 - 执行真实 `ping`、Web 访问和 FTP 下载。
 - 执行真实 `iperf3` 带宽测试，展示吞吐量和性能瓶颈说明。
+- 执行 DHCP 地址获取和 DNS 校园域名解析。
+- 制造/恢复接入交换机上联故障和 Web/FTP 服务故障。
 - 从一个 Mininet 主机向另一个 Mininet 主机发送可选择的业务消息。
 - 展示目标主机实际收到的消息内容、发送方、接收方和 TCP 端口。
 - 高亮真实通信路径，成功显示绿色，失败或 ACL 阻断显示红色。
@@ -124,6 +126,7 @@ sudo ./stop_live_server.sh
 | 办公楼 / VLAN 40 | `10.10.40.0/24` | `10.10.40.1` | `office1`, `office2` |
 | 人事处 / VLAN 50 | `10.10.50.0/24` | `10.10.50.1` | `hr1` |
 | 财务处 / VLAN 60 | `10.10.60.0/24` | `10.10.60.1` | `fin1` |
+| 访客网络 / VLAN 70 | `10.10.70.0/24` | `10.10.70.1` | `guest1` DHCP |
 | 服务器区 / VLAN 100 | `10.10.100.0/24` | `10.10.100.1` | `web`, `ftp` |
 | 外部模拟区 / VLAN 200 | `203.0.113.0/24` | `203.0.113.1` | `attacker1` |
 
@@ -140,6 +143,21 @@ sudo ./stop_live_server.sh
 
 带宽测试使用 `iperf3`，页面中选择“带宽测试 iperf3”或点击快速场景即可运行。普通区域访问服务器区预期约 100 Mbps，服务器区内部 `web -> ftp` 预期体现 1000 Mbps 高速链路。
 
+## DHCP、DNS、访客网络与故障模拟
+
+`r_core` 通过 `dnsmasq` 提供 DHCP/DNS 服务。学生、教学、图书馆、办公和访客 VLAN 各自拥有 `100-199` 地址池；`guest1` 和 `dhcp_stu1` 用于演示动态地址获取。
+
+校园 DNS 记录：
+
+| 域名 | 地址 |
+|---|---|
+| `web.campus.local` | `10.10.100.10` |
+| `ftp.campus.local` | `10.10.100.20` |
+| `hr.campus.local` | `10.10.50.11` |
+| `finance.campus.local` | `10.10.60.11` |
+
+访客网络 VLAN 70 只允许访问服务器区 Web/FTP，不允许访问学生、教学、图书馆、办公、人事和财务区域。实时控制台支持一键制造/恢复接入交换机上联故障，以及停止/恢复 Web/FTP 服务，用于展示故障发生后业务失败、恢复后业务恢复的过程。
+
 ## 安全策略
 
 核心路由节点 `r_core` 使用 `iptables` 实现 ACL：
@@ -148,4 +166,5 @@ sudo ./stop_live_server.sh
 - 办公楼允许访问人事处和财务处。
 - 内网各区域允许访问 Web/FTP 服务器。
 - 外部模拟主机禁止访问校园内网。
+- 访客网络只允许访问 Web/FTP 服务区，禁止进入校园内部办公和敏感区域。
 - 其他普通校园区域之间保持三层互通。
