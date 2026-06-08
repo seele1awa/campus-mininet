@@ -1,11 +1,13 @@
 const model = {
-  router: { id: "r_core", label: "核心路由", role: "router", ip: "多接口网关", x: 580, y: 342 },
+  coreSwitch: { id: "s_core", label: "s_core", role: "core-switch", ip: "trunk", x: 580, y: 300 },
+  router: { id: "r_core", label: "核心路由", role: "router", ip: "VLAN 子接口网关", x: 580, y: 378 },
   areas: [
     {
       id: "student",
       label: "学生宿舍",
       subnet: "10.10.10.0/24",
       gateway: "10.10.10.1",
+      vlan: 10,
       switch: { id: "s_stu", label: "s_stu", x: 210, y: 180 },
       hosts: [
         { id: "stu1", label: "stu1", ip: "10.10.10.11", x: 110, y: 95 },
@@ -19,6 +21,7 @@ const model = {
       label: "教学楼",
       subnet: "10.10.20.0/24",
       gateway: "10.10.20.1",
+      vlan: 20,
       switch: { id: "s_teach", label: "s_teach", x: 580, y: 155 },
       hosts: [
         { id: "teach1", label: "teach1", ip: "10.10.20.11", x: 505, y: 72 },
@@ -31,6 +34,7 @@ const model = {
       label: "图书馆",
       subnet: "10.10.30.0/24",
       gateway: "10.10.30.1",
+      vlan: 30,
       switch: { id: "s_lib", label: "s_lib", x: 940, y: 180 },
       hosts: [
         { id: "lib1", label: "lib1", ip: "10.10.30.11", x: 860, y: 95 },
@@ -43,6 +47,7 @@ const model = {
       label: "办公楼",
       subnet: "10.10.40.0/24",
       gateway: "10.10.40.1",
+      vlan: 40,
       switch: { id: "s_office", label: "s_office", x: 190, y: 520 },
       hosts: [
         { id: "office1", label: "office1", ip: "10.10.40.11", x: 105, y: 610 },
@@ -55,6 +60,7 @@ const model = {
       label: "人事处",
       subnet: "10.10.50.0/24",
       gateway: "10.10.50.1",
+      vlan: 50,
       switch: { id: "s_hr", label: "s_hr", x: 455, y: 548 },
       hosts: [{ id: "hr1", label: "hr1", ip: "10.10.50.11", x: 455, y: 625 }],
       box: { x: 375, y: 492, width: 160, height: 170 },
@@ -64,6 +70,7 @@ const model = {
       label: "财务处",
       subnet: "10.10.60.0/24",
       gateway: "10.10.60.1",
+      vlan: 60,
       switch: { id: "s_fin", label: "s_fin", x: 705, y: 548 },
       hosts: [{ id: "fin1", label: "fin1", ip: "10.10.60.11", x: 705, y: 625 }],
       box: { x: 625, y: 492, width: 160, height: 170 },
@@ -73,6 +80,7 @@ const model = {
       label: "服务器区",
       subnet: "10.10.100.0/24",
       gateway: "10.10.100.1",
+      vlan: 100,
       switch: { id: "s_srv", label: "s_srv", x: 970, y: 520 },
       hosts: [
         { id: "web", label: "web", ip: "10.10.100.10", role: "server", service: "HTTP:80", x: 890, y: 610 },
@@ -85,6 +93,7 @@ const model = {
       label: "外部模拟区",
       subnet: "203.0.113.0/24",
       gateway: "203.0.113.1",
+      vlan: 200,
       switch: { id: "s_ext", label: "s_ext", x: 580, y: 515 },
       hosts: [{ id: "attacker1", label: "attacker1", ip: "203.0.113.100", x: 580, y: 620 }],
       hiddenBox: true,
@@ -113,6 +122,8 @@ const quickScenarios = [
   { label: "学生下载 FTP", action: "ftp", source: "stu1", target: "ftp" },
   { label: "学生访问人事处", action: "ping", source: "stu1", target: "hr1" },
   { label: "办公楼发给财务处", action: "message", source: "office1", target: "fin1", message: "办公楼发送审批数据：请财务处确认项目经费。" },
+  { label: "学生到服务器性能", action: "perf", source: "stu1", target: "web" },
+  { label: "服务器区内部高速", action: "perf", source: "web", target: "ftp" },
 ];
 
 const svg = document.getElementById("topologySvg");
@@ -131,6 +142,8 @@ const resultReason = document.getElementById("resultReason");
 const terminalOutput = document.getElementById("terminalOutput");
 const nodeDetails = document.getElementById("nodeDetails");
 const eventLog = document.getElementById("eventLog");
+const auditLog = document.getElementById("auditLog");
+const auditSummary = document.getElementById("auditSummary");
 const policyGrid = document.getElementById("policyGrid");
 const scenarioList = document.getElementById("scenarioList");
 
@@ -149,13 +162,34 @@ function addNode(node, areaId, role) {
 
 function prepareModel() {
   addNode(model.router, "core", "router");
+  addNode(model.coreSwitch, "core", "core-switch");
+  links.push({ a: model.coreSwitch.id, b: model.router.id, id: `${model.coreSwitch.id}-${model.router.id}`, mode: "trunk" });
   model.areas.forEach((area) => {
-    addNode(area.switch, area.id, "switch");
-    links.push({ a: area.switch.id, b: model.router.id, id: `${area.switch.id}-${model.router.id}` });
+    addNode({ ...area.switch, vlan: area.vlan, portMode: "trunk" }, area.id, "switch");
+    links.push({ a: area.switch.id, b: model.coreSwitch.id, id: `${area.switch.id}-${model.coreSwitch.id}`, mode: "trunk" });
     area.hosts.forEach((host) => {
-      addNode(host, area.id, host.role || "host");
-      links.push({ a: host.id, b: area.switch.id, id: `${host.id}-${area.switch.id}` });
+      addNode({ ...host, vlan: area.vlan, portMode: "access" }, area.id, host.role || "host");
+      links.push({ a: host.id, b: area.switch.id, id: `${host.id}-${area.switch.id}`, mode: "access" });
     });
+  });
+}
+
+function mergeTopology(status) {
+  if (!status?.areas) return;
+  status.areas.forEach((nextArea) => {
+    const area = model.areas.find((item) => item.id === nextArea.id);
+    if (!area) return;
+    area.vlan = nextArea.vlan ?? area.vlan;
+    area.gateway = nextArea.gateway || area.gateway;
+    area.subnet = nextArea.subnet || area.subnet;
+    nextArea.hosts?.forEach((nextHost) => {
+      const host = area.hosts.find((item) => item.id === nextHost.id);
+      if (host) Object.assign(host, nextHost);
+      const node = nodes.get(nextHost.id);
+      if (node) Object.assign(node, nextHost);
+    });
+    const switchNode = nodes.get(area.switch.id);
+    if (switchNode) Object.assign(switchNode, { vlan: area.vlan, portMode: "trunk" });
   });
 }
 
@@ -225,7 +259,7 @@ function renderTopology() {
       x: area.box.x + area.box.width / 2,
       y: area.box.y + 28,
     });
-    label.textContent = area.label;
+    label.textContent = `${area.label} · VLAN ${area.vlan}`;
     svg.appendChild(label);
   });
 
@@ -253,8 +287,8 @@ function renderTopology() {
       if (event.key === "Enter" || event.key === " ") selectNode(node.id);
     });
 
-    const color = node.role === "router" ? "#0f766e" : node.role === "switch" ? "#2563eb" : node.role === "server" ? "#7c3aed" : "#b45309";
-    const shape = svgEl(node.role === "switch" ? "rect" : "circle", node.role === "switch"
+    const color = node.role === "router" ? "#0f766e" : node.role === "core-switch" ? "#1d4ed8" : node.role === "switch" ? "#2563eb" : node.role === "server" ? "#7c3aed" : "#b45309";
+    const shape = svgEl(node.role === "switch" || node.role === "core-switch" ? "rect" : "circle", node.role === "switch" || node.role === "core-switch"
       ? { class: "node-shape", x: node.x - 31, y: node.y - 22, width: 62, height: 44, rx: 8, fill: color }
       : { class: "node-shape", cx: node.x, cy: node.y, r: node.role === "router" ? 40 : 28, fill: color });
     group.appendChild(shape);
@@ -263,8 +297,8 @@ function renderTopology() {
     label.textContent = node.label;
     group.appendChild(label);
 
-    const sub = svgEl("text", { class: "node-sub", x: node.x, y: node.y + (node.role === "switch" ? 40 : 46) });
-    sub.textContent = node.role === "router" ? "L3" : node.role === "switch" ? "L2" : node.ip;
+    const sub = svgEl("text", { class: "node-sub", x: node.x, y: node.y + (node.role === "switch" || node.role === "core-switch" ? 40 : 46) });
+    sub.textContent = node.role === "router" ? "L3 VLAN GW" : node.role === "core-switch" ? "trunk" : node.role === "switch" ? `VLAN ${node.vlan}` : node.ip;
     group.appendChild(sub);
     svg.appendChild(group);
 
@@ -288,12 +322,14 @@ function renderNodeDetails(id) {
   const area = areaForNode(id);
   const details = [
     ["节点", node.label],
-    ["类型", node.role === "router" ? "核心路由器" : node.role === "switch" ? "二层交换机" : node.role === "server" ? "服务器" : "终端主机"],
+    ["类型", node.role === "router" ? "核心路由器" : node.role === "core-switch" ? "核心交换机" : node.role === "switch" ? "接入交换机" : node.role === "server" ? "服务器" : "终端主机"],
     ["区域", area ? area.label : "核心层"],
     ["地址", node.ip || area?.gateway || "多接口"],
   ];
   if (area) {
-    details.push(["网段", area.subnet], ["网关", area.gateway]);
+    details.push(["VLAN", area.vlan], ["端口模式", node.portMode || (node.role === "switch" ? "trunk" : "access")], ["网段", area.subnet], ["网关", area.gateway]);
+  } else if (node.role === "core-switch") {
+    details.push(["端口模式", "trunk"], ["承载 VLAN", model.areas.map((item) => item.vlan).join(", ")]);
   }
   if (node.service) {
     details.push(["服务", node.service]);
@@ -308,7 +344,7 @@ function pathBetween(source, target) {
   if (sourceArea.id === targetArea.id) {
     return [source, sourceArea.switch.id, target];
   }
-  return [source, sourceArea.switch.id, "r_core", targetArea.switch.id, target];
+  return [source, sourceArea.switch.id, "s_core", "r_core", "s_core", targetArea.switch.id, target];
 }
 
 function clearLinkStates() {
@@ -380,11 +416,43 @@ function renderEvents(events = []) {
     .join("");
 }
 
+function levelText(level) {
+  if (level === "high") return "高风险";
+  if (level === "blocked") return "阻断";
+  return "正常";
+}
+
+function renderAudit(audit = [], summary = {}) {
+  auditSummary.innerHTML = [
+    `<span>总计 ${summary.total || audit.length || 0}</span>`,
+    `<span>高风险 ${summary.high || 0}</span>`,
+    `<span>阻断 ${summary.blocked || 0}</span>`,
+  ].join("");
+
+  if (!audit.length) {
+    auditLog.innerHTML = '<div class="audit-item normal"><strong>暂无审计记录</strong><p>执行真实测试后会出现访问审计。</p></div>';
+    return;
+  }
+
+  auditLog.innerHTML = audit
+    .slice()
+    .reverse()
+    .map((item) => `
+      <article class="audit-item ${item.level}">
+        <div><strong>${item.time}</strong><span>${levelText(item.level)}</span></div>
+        <p>${item.source} (${item.sourceArea}) -> ${item.target} (${item.targetArea}) · ${item.action} · ${item.ok ? "成功" : "失败"}</p>
+        <small>${item.reason}</small>
+      </article>
+    `)
+    .join("");
+}
+
 async function refreshStatus() {
   try {
     const status = await api("/api/status");
     backendOnline = true;
     topologyRunning = Boolean(status.running);
+    mergeTopology(status);
     policies = status.policies || policies;
     const nextTemplates = status.messageTemplates || templates;
     const nextSignature = JSON.stringify(nextTemplates.map((item) => [item.id, item.label, item.text]));
@@ -395,12 +463,14 @@ async function refreshStatus() {
     }
     renderPolicies();
     renderEvents(status.events || []);
+    renderAudit(status.audit || [], status.auditSummary || {});
     updateBadges();
   } catch (error) {
     backendOnline = false;
     topologyRunning = false;
     updateBadges();
     renderEvents([]);
+    renderAudit([], {});
   }
 }
 
@@ -411,12 +481,19 @@ function commandOutput(result) {
     `目标主机: ${result.target || "-"} ${result.targetIp ? `(${result.targetIp})` : ""}`,
     `退出码: ${result.rc ?? "-"}`,
     `命令: ${result.command || "-"}`,
-    "",
-    "输出:",
-    result.output || "(无输出)",
   ];
+  if (result.auditLevel) {
+    parts.push(`审计级别: ${levelText(result.auditLevel)}`, `审计原因: ${result.auditReason || "-"}`);
+  }
+  if (result.action === "perf") {
+    parts.push(`吞吐量: ${result.mbps ?? "-"} Mbps`, `性能预期: ${result.expectedProfile || "-"}`);
+  }
+  parts.push("", "输出:", result.output || "(无输出)");
   if (result.received) {
     parts.push("", "目标主机接收记录:", JSON.stringify(result.received, null, 2));
+  }
+  if (result.rawOutput && result.action === "perf") {
+    parts.push("", "iperf3 原始 JSON:", result.rawOutput);
   }
   return parts.join("\n");
 }
@@ -430,6 +507,10 @@ function showResult(result) {
     resultReason.textContent = ok
       ? `${result.target} 实际收到来自 ${result.source} 的消息：“${payload?.message || result.message}”。`
       : "消息没有到达目标主机，可能被 ACL 阻断或目标服务不可达。";
+  } else if (result.action === "perf") {
+    resultReason.textContent = ok
+      ? `iperf3 实测吞吐量 ${result.mbps} Mbps。${result.expectedProfile}`
+      : "iperf3 性能测试失败，可能目标不可达、ACL 阻断或 iperf3 未安装。";
   } else if (result.action === "web") {
     resultReason.textContent = ok ? "Web 页面由 Mininet 中的 web 主机真实返回。" : "HTTP 访问失败，可能目标不是 Web 服务器或路径被阻断。";
   } else if (result.action === "ftp") {

@@ -21,13 +21,14 @@ from typing import Any
 
 from mininet.log import setLogLevel
 
-from campus_net import AREAS, build_net, configure_security, start_services
+from campus_net import AREAS, build_net, configure_security, configure_vlans, start_services
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UI_ROOT = PROJECT_ROOT / "visualization"
 MESSAGE_RECEIVER = PROJECT_ROOT / "src" / "services" / "message_receiver.py"
 MESSAGE_SENDER = PROJECT_ROOT / "src" / "services" / "message_sender.py"
+AUDIT_LOG = Path("/tmp/campus_audit.log")
 
 POLICIES = [
     {
@@ -45,6 +46,10 @@ POLICIES = [
     {
         "title": "外部访问阻断",
         "body": "外部模拟区 203.0.113.0/24 不能进入校园内网 10.10.0.0/16。",
+    },
+    {
+        "title": "VLAN 分区",
+        "body": "各区域使用 access VLAN 接入，接入交换机、核心交换机和路由器之间通过 trunk 承载多 VLAN。",
     },
 ]
 
@@ -91,6 +96,7 @@ def host_catalog() -> dict[str, dict[str, str]]:
                 "ip": ip.split("/")[0],
                 "areaId": area_id,
                 "areaLabel": area["label"],
+                "vlan": str(area["vlan"]),
             }
     return catalog
 
@@ -108,6 +114,8 @@ def topology_payload(running: bool) -> dict[str, Any]:
                 "switch": area["switch"],
                 "subnet": area["subnet"],
                 "gateway": area["gateway"].split("/")[0],
+                "vlan": area["vlan"],
+                "uplink": "trunk",
                 "hosts": [
                     {
                         "id": host,
@@ -115,6 +123,8 @@ def topology_payload(running: bool) -> dict[str, Any]:
                         "ip": ip.split("/")[0],
                         "role": "server" if host in {"web", "ftp"} else "host",
                         "service": "HTTP:80" if host == "web" else "FTP:21" if host == "ftp" else "",
+                        "vlan": area["vlan"],
+                        "portMode": "access",
                     }
                     for host, ip in area["hosts"]
                 ],
@@ -124,6 +134,7 @@ def topology_payload(running: bool) -> dict[str, Any]:
         "running": running,
         "areas": areas,
         "router": {"id": "r_core", "label": "核心路由", "ip": "多接口网关"},
+        "coreSwitch": {"id": "s_core", "label": "核心交换", "mode": "trunk"},
         "policies": POLICIES,
         "messageTemplates": MESSAGE_TEMPLATES,
     }
@@ -135,6 +146,7 @@ class CampusLiveRuntime:
         self.net = None
         self.started_at: float | None = None
         self.events: list[dict[str, Any]] = []
+        self.audit: list[dict[str, Any]] = []
 
     def log_event(self, kind: str, message: str, ok: bool = True) -> None:
         event = {
@@ -146,12 +158,66 @@ class CampusLiveRuntime:
         self.events.append(event)
         self.events = self.events[-80:]
 
+    def audit_summary(self) -> dict[str, int]:
+        recent = self.audit[-80:]
+        return {
+            "total": len(recent),
+            "high": sum(1 for item in recent if item["level"] == "high"),
+            "blocked": sum(1 for item in recent if not item["ok"]),
+            "normal": sum(1 for item in recent if item["level"] == "normal"),
+        }
+
+    def classify_audit(self, source: str, target: str, action: str, ok: bool) -> tuple[str, str]:
+        source_area = HOSTS.get(source, {}).get("areaId", "")
+        target_area = HOSTS.get(target, {}).get("areaId", "")
+        sensitive_areas = {"hr", "finance"}
+        normal_user_areas = {"student", "teaching", "library"}
+
+        if source_area == "external" and target_area != "external":
+            return "high", "外部模拟区访问校园内网，命中边界防护审计规则。"
+        if source_area in normal_user_areas and target_area in sensitive_areas:
+            return "high", "普通区域访问人事处/财务处，命中敏感区域隔离规则。"
+        if not ok and target_area in sensitive_areas:
+            return "blocked", "访问敏感区域失败，记录为阻断事件。"
+        if not ok:
+            return "blocked", "访问失败或服务不可达，记录为异常事件。"
+        if action == "perf":
+            return "normal", "性能测试完成，记录吞吐量审计数据。"
+        return "normal", "业务访问符合当前网络策略。"
+
+    def log_audit(self, action: str, source: str, target: str, ok: bool, detail: str = "") -> dict[str, Any]:
+        level, reason = self.classify_audit(source, target, action, ok)
+        record = {
+            "time": time.strftime("%H:%M:%S"),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "action": action,
+            "source": source,
+            "target": target,
+            "sourceArea": HOSTS.get(source, {}).get("areaLabel", "-"),
+            "targetArea": HOSTS.get(target, {}).get("areaLabel", "-"),
+            "ok": ok,
+            "level": level,
+            "reason": reason,
+            "detail": detail,
+        }
+        self.audit.append(record)
+        self.audit = self.audit[-160:]
+        try:
+            AUDIT_LOG.write_text("", encoding="utf-8") if not AUDIT_LOG.exists() else None
+            with AUDIT_LOG.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+        return record
+
     def status(self) -> dict[str, Any]:
         with self.lock:
             return {
                 **topology_payload(self.net is not None),
                 "startedAt": self.started_at,
                 "events": self.events[-12:],
+                "audit": self.audit[-16:],
+                "auditSummary": self.audit_summary(),
             }
 
     def start(self) -> dict[str, Any]:
@@ -164,6 +230,7 @@ class CampusLiveRuntime:
             setLogLevel("info")
             net = build_net()
             net.start()
+            configure_vlans(net)
             configure_security(net.get("r_core"))
             start_services(net)
             self.net = net
@@ -202,7 +269,8 @@ class CampusLiveRuntime:
 
     def run_host_command(self, host_id: str, command: str, timeout_hint: int = 4) -> dict[str, Any]:
         host = self.host(host_id)
-        wrapped = f"timeout {timeout_hint} bash -lc {shlex.quote(command + '; rc=$?; printf \"\\n__RC__%s\\n\" \"$rc\"')}"
+        shell_command = command + '; rc=$?; printf "\n__RC__%s\n" "$rc"'
+        wrapped = f"timeout {timeout_hint} bash -lc {shlex.quote(shell_command)}"
         output = host.cmd(wrapped)
         rc = 124
         cleaned = []
@@ -220,7 +288,8 @@ class CampusLiveRuntime:
         target_ip = self.host_ip(target)
         result = self.run_host_command(source, f"ping -c 2 -W 1 {target_ip}", timeout_hint=5)
         self.log_event("ping", f"{source} ping {target} {'成功' if result['ok'] else '失败'}", result["ok"])
-        return {"action": "ping", "source": source, "target": target, "targetIp": target_ip, **result}
+        audit = self.log_audit("ping", source, target, result["ok"], result["output"][:160])
+        return {"action": "ping", "source": source, "target": target, "targetIp": target_ip, "auditLevel": audit["level"], "auditReason": audit["reason"], **result}
 
     def web(self, source: str, target: str) -> dict[str, Any]:
         target_ip = self.host_ip(target)
@@ -234,7 +303,8 @@ class CampusLiveRuntime:
             result["rawOutputBase64"] = result["output"]
             result["output"] = base64.b64decode(result["output"].encode("ascii")).decode("utf-8", errors="replace")
         self.log_event("web", f"{source} HTTP 访问 {target} {'成功' if result['ok'] else '失败'}", result["ok"])
-        return {"action": "web", "source": source, "target": target, "targetIp": target_ip, **result}
+        audit = self.log_audit("web", source, target, result["ok"], result["output"][:160])
+        return {"action": "web", "source": source, "target": target, "targetIp": target_ip, "auditLevel": audit["level"], "auditReason": audit["reason"], **result}
 
     def ftp(self, source: str, target: str) -> dict[str, Any]:
         target_ip = self.host_ip(target)
@@ -244,7 +314,63 @@ class CampusLiveRuntime:
             result["rawOutputBase64"] = result["output"]
             result["output"] = base64.b64decode(result["output"].encode("ascii")).decode("utf-8", errors="replace")
         self.log_event("ftp", f"{source} FTP 访问 {target} {'成功' if result['ok'] else '失败'}", result["ok"])
-        return {"action": "ftp", "source": source, "target": target, "targetIp": target_ip, **result}
+        audit = self.log_audit("ftp", source, target, result["ok"], result["output"][:160])
+        return {"action": "ftp", "source": source, "target": target, "targetIp": target_ip, "auditLevel": audit["level"], "auditReason": audit["reason"], **result}
+
+    def performance(self, source: str, target: str) -> dict[str, Any]:
+        target_ip = self.host_ip(target)
+        target_host = self.host(target)
+        port = random.randint(19000, 22000)
+        token = f"{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
+        target_host.cmd(f"pkill -f 'iperf3 -s .* -p {port}' 2>/dev/null || true")
+        target_host.cmd(f"nohup iperf3 -s -1 -p {port} > /tmp/campus_iperf_{token}.log 2>&1 &")
+        time.sleep(0.35)
+
+        command = f"iperf3 -c {target_ip} -p {port} -t 4 -J"
+        result = self.run_host_command(source, command, timeout_hint=9)
+        target_host.cmd(f"pkill -f 'iperf3 -s .* -p {port}' 2>/dev/null || true")
+        target_host.cmd(f"rm -f /tmp/campus_iperf_{token}.log 2>/dev/null || true")
+
+        mbps = None
+        if result["ok"] and result["output"]:
+            try:
+                parsed = json.loads(result["output"])
+                bits = (
+                    parsed.get("end", {}).get("sum_received", {}).get("bits_per_second")
+                    or parsed.get("end", {}).get("sum_sent", {}).get("bits_per_second")
+                )
+                if bits:
+                    mbps = round(float(bits) / 1_000_000, 2)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                mbps = None
+
+        source_area = HOSTS.get(source, {}).get("areaId")
+        target_area = HOSTS.get(target, {}).get("areaId")
+        if source_area == "server" and target_area == "server":
+            expected_profile = "服务器区内部高速链路，目标约 1000 Mbps。"
+        else:
+            expected_profile = "普通接入链路瓶颈，目标约 100 Mbps。"
+
+        ok = result["ok"] and mbps is not None
+        detail = f"{mbps} Mbps" if mbps is not None else result["output"][:160]
+        self.log_event("perf", f"{source} 到 {target} iperf3 {'成功' if ok else '失败'}", ok)
+        audit = self.log_audit("perf", source, target, ok, detail)
+        output = f"吞吐量: {mbps} Mbps\n{expected_profile}" if mbps is not None else result["output"]
+        return {
+            "action": "perf",
+            "source": source,
+            "target": target,
+            "targetIp": target_ip,
+            "ok": ok,
+            "rc": result["rc"],
+            "command": command,
+            "output": output,
+            "rawOutput": result["output"],
+            "mbps": mbps,
+            "expectedProfile": expected_profile,
+            "auditLevel": audit["level"],
+            "auditReason": audit["reason"],
+        }
 
     def send_message(self, source: str, target: str, message: str) -> dict[str, Any]:
         self.require_net()
@@ -275,7 +401,8 @@ class CampusLiveRuntime:
             f"--sender {shlex.quote(source)} --receiver {shlex.quote(target)} "
             f"--message-b64 {encoded} --timeout 4"
         )
-        wrapped = f"timeout 6 bash -lc {shlex.quote(send_cmd + '; rc=$?; printf \"\\n__RC__%s\\n\" \"$rc\"')}"
+        shell_command = send_cmd + '; rc=$?; printf "\n__RC__%s\n" "$rc"'
+        wrapped = f"timeout 6 bash -lc {shlex.quote(shell_command)}"
         output = source_host.cmd(wrapped)
         rc = 124
         lines = []
@@ -302,6 +429,7 @@ class CampusLiveRuntime:
 
         ok = rc == 0 and bool(received and received.get("ok"))
         self.log_event("message", f"{source} 向 {target} 发送消息 {'成功' if ok else '失败'}", ok)
+        audit = self.log_audit("message", source, target, ok, message[:160])
         return {
             "ok": ok,
             "rc": rc,
@@ -314,6 +442,8 @@ class CampusLiveRuntime:
             "command": send_cmd,
             "output": "\n".join(lines).strip(),
             "received": received,
+            "auditLevel": audit["level"],
+            "auditReason": audit["reason"],
         }
 
     def run_action(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -327,6 +457,8 @@ class CampusLiveRuntime:
                 return self.web(source, target)
             if action == "ftp":
                 return self.ftp(source, target)
+            if action == "perf":
+                return self.performance(source, target)
             if action == "message":
                 return self.send_message(source, target, str(body.get("message", "")))
             raise ValueError(f"未知操作：{action}")
@@ -392,6 +524,9 @@ class LiveRequestHandler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/topology":
             self.write_json(HTTPStatus.OK, topology_payload(RUNTIME.net is not None))
+            return
+        if self.path == "/api/audit":
+            self.write_json(HTTPStatus.OK, {"ok": True, "audit": RUNTIME.audit[-80:], "auditSummary": RUNTIME.audit_summary()})
             return
         super().do_GET()
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,12 +33,15 @@ SERVICES_DIR = PROJECT_ROOT / "src" / "services"
 WEB_ROOT = SERVICES_DIR / "web_root"
 FTP_ROOT = SERVICES_DIR / "ftp_root"
 FTP_SERVER = SERVICES_DIR / "simple_ftp_server.py"
+ROUTER_TRUNK_INTF = "r_core-eth0"
+CORE_ROUTER_PORT = "s_core-eth9"
 
 
 AREAS = {
     "student": {
         "label": "学生宿舍",
         "switch": "s_stu",
+        "vlan": 10,
         "subnet": "10.10.10.0/24",
         "gateway": "10.10.10.1/24",
         "hosts": [
@@ -49,6 +53,7 @@ AREAS = {
     "teaching": {
         "label": "教学楼",
         "switch": "s_teach",
+        "vlan": 20,
         "subnet": "10.10.20.0/24",
         "gateway": "10.10.20.1/24",
         "hosts": [
@@ -59,6 +64,7 @@ AREAS = {
     "library": {
         "label": "图书馆",
         "switch": "s_lib",
+        "vlan": 30,
         "subnet": "10.10.30.0/24",
         "gateway": "10.10.30.1/24",
         "hosts": [
@@ -69,6 +75,7 @@ AREAS = {
     "office": {
         "label": "办公楼",
         "switch": "s_office",
+        "vlan": 40,
         "subnet": "10.10.40.0/24",
         "gateway": "10.10.40.1/24",
         "hosts": [
@@ -79,6 +86,7 @@ AREAS = {
     "hr": {
         "label": "人事处",
         "switch": "s_hr",
+        "vlan": 50,
         "subnet": "10.10.50.0/24",
         "gateway": "10.10.50.1/24",
         "hosts": [
@@ -88,6 +96,7 @@ AREAS = {
     "finance": {
         "label": "财务处",
         "switch": "s_fin",
+        "vlan": 60,
         "subnet": "10.10.60.0/24",
         "gateway": "10.10.60.1/24",
         "hosts": [
@@ -97,6 +106,7 @@ AREAS = {
     "server": {
         "label": "服务器区",
         "switch": "s_srv",
+        "vlan": 100,
         "subnet": "10.10.100.0/24",
         "gateway": "10.10.100.1/24",
         "hosts": [
@@ -107,6 +117,7 @@ AREAS = {
     "external": {
         "label": "外部模拟区",
         "switch": "s_ext",
+        "vlan": 200,
         "subnet": "203.0.113.0/24",
         "gateway": "203.0.113.1/24",
         "hosts": [
@@ -123,6 +134,45 @@ HOST_GATEWAYS = {
 }
 
 
+def access_port_name(switch_name: str, host_index: int) -> str:
+    """Return a Linux-safe OVS port name for a host-facing access port."""
+
+    return f"{switch_name}-eth{host_index}"
+
+
+def access_trunk_port_name(switch_name: str) -> str:
+    """Return a Linux-safe OVS port name for an access switch trunk uplink."""
+
+    return f"{switch_name}-eth9"
+
+
+def core_area_port_name(area_index: int) -> str:
+    """Return a Linux-safe OVS port name for a core switch area trunk."""
+
+    return f"s_core-eth{area_index}"
+
+
+def router_vlan_intf(vlan: int | str) -> str:
+    """Return a Linux-safe router VLAN subinterface name."""
+
+    return f"{ROUTER_TRUNK_INTF}.{vlan}"
+
+
+def cleanup_legacy_interfaces() -> None:
+    """Remove legacy custom veth names left by interrupted older runs."""
+
+    names = ["s_core-r_core", "r_core-t"]
+    for area_key, area in AREAS.items():
+        switch_name = area["switch"]
+        names.extend([f"{switch_name}-trunk", f"s_core-{area_key}"])
+        for host_name, _host_ip in area["hosts"]:
+            names.append(f"{switch_name}-{host_name}")
+        for host_index, _host in enumerate(area["hosts"], start=1):
+            names.append(f"{switch_name}-h{host_index}")
+    for name in names:
+        subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
 class LinuxRouter(Node):
     """A Mininet node configured as a Linux router."""
 
@@ -135,15 +185,32 @@ class LinuxRouter(Node):
     def terminate(self):  # type: ignore[override]
         self.cmd("iptables -F FORWARD")
         self.cmd("iptables -P FORWARD ACCEPT")
+        self.cmd("for intf in $(ip -o link show | awk -F': ' '/r_core-eth0\\./ {print $2}'); do ip link delete \"$intf\" 2>/dev/null || true; done")
         self.cmd("sysctl -w net.ipv4.ip_forward=0")
         super().terminate()
 
 
 class CampusTopo(Topo):
-    """Campus topology with per-area access switches and one core router."""
+    """Campus topology with VLAN access switches, a core trunk switch, and one router."""
 
     def build(self):  # type: ignore[override]
         router = self.addNode("r_core", cls=LinuxRouter, ip=None)
+        core_switch = self.addSwitch(
+            "s_core",
+            cls=OVSKernelSwitch,
+            failMode="standalone",
+            dpid="00000000000000ff",
+        )
+        self.addLink(
+            core_switch,
+            router,
+            intfName1=CORE_ROUTER_PORT,
+            intfName2=ROUTER_TRUNK_INTF,
+            cls=TCLink,
+            bw=1000,
+            delay="1ms",
+            use_tbf=True,
+        )
 
         for dpid_index, (area_key, area) in enumerate(AREAS.items(), start=1):
             switch = self.addSwitch(
@@ -154,22 +221,77 @@ class CampusTopo(Topo):
             )
             self.addLink(
                 switch,
-                router,
-                intfName2=f"r_core-{area_key}",
-                params2={"ip": area["gateway"]},
+                core_switch,
+                intfName1=access_trunk_port_name(area["switch"]),
+                intfName2=core_area_port_name(dpid_index),
                 cls=TCLink,
                 bw=100 if area_key != "server" else 1000,
                 delay="2ms" if area_key != "external" else "20ms",
                 use_tbf=True,
             )
             gateway_ip = area["gateway"].split("/")[0]
-            for host_name, host_ip in area["hosts"]:
+            for host_index, (host_name, host_ip) in enumerate(area["hosts"], start=1):
                 host = self.addHost(
                     host_name,
                     ip=host_ip,
                     defaultRoute=f"via {gateway_ip}",
                 )
-                self.addLink(host, switch, cls=TCLink, bw=100, delay="1ms", use_tbf=True)
+                self.addLink(
+                    host,
+                    switch,
+                    intfName2=access_port_name(area["switch"], host_index),
+                    cls=TCLink,
+                    bw=1000 if area_key == "server" else 100,
+                    delay="1ms",
+                    use_tbf=True,
+                )
+
+
+def configure_vlans(net: Mininet) -> None:
+    """Configure OVS access/trunk ports and router VLAN subinterfaces."""
+
+    vlan_ids = [str(area["vlan"]) for area in AREAS.values()]
+    trunk_list = ",".join(vlan_ids)
+
+    core = net.get("s_core")
+    core.cmd(f"ovs-vsctl set port {CORE_ROUTER_PORT} trunks={trunk_list}")
+
+    router = net.get("r_core")
+    router.cmd(f"ip link set {ROUTER_TRUNK_INTF} up")
+    router.cmd("for intf in $(ip -o link show | awk -F': ' '/r_core-eth0\\./ {print $2}'); do ip link delete \"$intf\" 2>/dev/null || true; done")
+
+    for area_index, (_area_key, area) in enumerate(AREAS.items(), start=1):
+        switch_name = area["switch"]
+        vlan = area["vlan"]
+
+        access_switch = net.get(switch_name)
+        access_switch.cmd(f"ovs-vsctl set port {access_trunk_port_name(switch_name)} trunks={vlan}")
+        core.cmd(f"ovs-vsctl set port {core_area_port_name(area_index)} trunks={vlan}")
+
+        for host_index, (_host_name, _host_ip) in enumerate(area["hosts"], start=1):
+            access_switch.cmd(f"ovs-vsctl set port {access_port_name(switch_name, host_index)} tag={vlan}")
+
+        vlan_intf = router_vlan_intf(vlan)
+        router.cmd(f"ip link add link {ROUTER_TRUNK_INTF} name {vlan_intf} type vlan id {vlan}")
+        router.cmd(f"ip addr add {area['gateway']} dev {vlan_intf}")
+        router.cmd(f"ip link set {vlan_intf} up")
+
+
+def verify_vlan_config(net: Mininet) -> bool:
+    """Return True when core/access VLAN settings and router subinterfaces exist."""
+
+    core = net.get("s_core")
+    checks = []
+    for area_index, (_area_key, area) in enumerate(AREAS.items(), start=1):
+        switch_name = area["switch"]
+        vlan = str(area["vlan"])
+        access_switch = net.get(switch_name)
+        checks.append(access_switch.cmd(f"ovs-vsctl get port {access_trunk_port_name(switch_name)} trunks").strip() in {f"[{vlan}]", vlan})
+        checks.append(core.cmd(f"ovs-vsctl get port {core_area_port_name(area_index)} trunks").strip() in {f"[{vlan}]", vlan})
+        for host_index, (_host_name, _host_ip) in enumerate(area["hosts"], start=1):
+            checks.append(access_switch.cmd(f"ovs-vsctl get port {access_port_name(switch_name, host_index)} tag").strip() == vlan)
+        checks.append(net.get("r_core").cmd(f"ip link show {router_vlan_intf(vlan)} >/dev/null 2>&1; echo $?").strip() == "0")
+    return all(checks)
 
 
 def configure_security(router: Node) -> None:
@@ -210,9 +332,9 @@ def start_services(net: Mininet) -> None:
 
 
 def print_summary(net: Mininet) -> None:
-    info("\n*** 校园网地址规划\n")
+    info("\n*** 校园网地址规划与 VLAN\n")
     for area in AREAS.values():
-        info(f"{area['label']}: {area['subnet']}, 网关 {area['gateway'].split('/')[0]}\n")
+        info(f"{area['label']}: VLAN {area['vlan']}, {area['subnet']}, 网关 {area['gateway'].split('/')[0]}\n")
         for host_name, host_ip in area["hosts"]:
             info(f"  - {host_name}: {host_ip.split('/')[0]}\n")
     info("\n*** 服务地址: Web=http://10.10.100.10, FTP=ftp://10.10.100.20/README.txt\n")
@@ -238,6 +360,8 @@ def run_case(net: Mininet, title: str, host_name: str, command: str, expect_ok: 
 
 def run_tests(net: Mininet) -> int:
     info("\n*** 自动测试开始\n")
+    vlan_ok = verify_vlan_config(net)
+    info(f"[{'PASS' if vlan_ok else 'FAIL'}] VLAN access/trunk 与路由子接口配置检查\n")
     cases = [
         ("宿舍区内部二层互通", "stu1", "ping -c 1 -W 1 10.10.10.12", True),
         ("宿舍区到教学楼三层互通", "stu1", "ping -c 1 -W 1 10.10.20.11", True),
@@ -250,12 +374,14 @@ def run_tests(net: Mininet) -> int:
         ("外部主机访问 Web 被阻断", "attacker1", "ping -c 1 -W 1 10.10.100.10", False),
     ]
     results = [run_case(net, *case) for case in cases]
-    passed = sum(1 for item in results if item)
-    info(f"*** 自动测试完成: {passed}/{len(results)} 通过\n")
-    return 0 if all(results) else 1
+    passed = sum(1 for item in results if item) + (1 if vlan_ok else 0)
+    total = len(results) + 1
+    info(f"*** 自动测试完成: {passed}/{total} 通过\n")
+    return 0 if vlan_ok and all(results) else 1
 
 
 def build_net() -> Mininet:
+    cleanup_legacy_interfaces()
     topo = CampusTopo()
     net = Mininet(
         topo=topo,
@@ -285,6 +411,7 @@ def main() -> int:
     try:
         info("*** 启动校园网拓扑\n")
         net.start()
+        configure_vlans(net)
         configure_security(net.get("r_core"))
         start_services(net)
         print_summary(net)

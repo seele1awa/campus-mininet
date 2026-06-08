@@ -115,7 +115,8 @@ h2 {
 .control-panel,
 .output-panel,
 .scenario-band,
-.policy-band {
+.policy-band,
+.audit-band {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -366,7 +367,8 @@ pre {
 }
 
 .scenario-band,
-.policy-band {
+.policy-band,
+.audit-band {
   margin: 0 clamp(18px, 4vw, 48px) 22px;
   padding: 18px 20px;
 }
@@ -382,7 +384,7 @@ pre {
 
 .scenario-list {
   display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
@@ -412,6 +414,96 @@ pre {
 .policy-card strong {
   display: block;
   margin-bottom: 8px;
+}
+
+.audit-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 8px;
+}
+
+.audit-summary span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.audit-log {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.audit-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcff;
+}
+
+.audit-item div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.audit-item span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.audit-item p,
+.audit-item small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.audit-item p {
+  margin-bottom: 7px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.audit-item.high {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.audit-item.high span {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audit-item.blocked {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.audit-item.blocked span {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.audit-item.normal {
+  border-color: #bbf7d0;
+}
+
+.audit-item.normal span {
+  background: #dcfce7;
+  color: #166534;
 }
 
 code {
