@@ -11,7 +11,9 @@ Topology goals:
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +36,17 @@ WEB_ROOT = SERVICES_DIR / "web_root"
 FTP_ROOT = SERVICES_DIR / "ftp_root"
 FTP_SERVER = SERVICES_DIR / "simple_ftp_server.py"
 ROUTER_TRUNK_INTF = "r_core-eth0"
-CORE_ROUTER_PORT = "s_core-eth9"
+CORE_ROUTER_PORT = "s_core-eth15"
+
+
+DNS_RECORDS = {
+    "web.campus.local": "10.10.100.10",
+    "ftp.campus.local": "10.10.100.20",
+    "hr.campus.local": "10.10.50.11",
+    "finance.campus.local": "10.10.60.11",
+}
+
+DHCP_SERVICE_AREAS = {"student", "teaching", "library", "office", "guest"}
 
 
 AREAS = {
@@ -44,10 +56,12 @@ AREAS = {
         "vlan": 10,
         "subnet": "10.10.10.0/24",
         "gateway": "10.10.10.1/24",
+        "dhcp": True,
         "hosts": [
             ("stu1", "10.10.10.11/24"),
             ("stu2", "10.10.10.12/24"),
             ("stu3", "10.10.10.13/24"),
+            ("dhcp_stu1", "dhcp"),
         ],
     },
     "teaching": {
@@ -56,6 +70,7 @@ AREAS = {
         "vlan": 20,
         "subnet": "10.10.20.0/24",
         "gateway": "10.10.20.1/24",
+        "dhcp": True,
         "hosts": [
             ("teach1", "10.10.20.11/24"),
             ("teach2", "10.10.20.12/24"),
@@ -67,6 +82,7 @@ AREAS = {
         "vlan": 30,
         "subnet": "10.10.30.0/24",
         "gateway": "10.10.30.1/24",
+        "dhcp": True,
         "hosts": [
             ("lib1", "10.10.30.11/24"),
             ("lib2", "10.10.30.12/24"),
@@ -78,6 +94,7 @@ AREAS = {
         "vlan": 40,
         "subnet": "10.10.40.0/24",
         "gateway": "10.10.40.1/24",
+        "dhcp": True,
         "hosts": [
             ("office1", "10.10.40.11/24"),
             ("office2", "10.10.40.12/24"),
@@ -101,6 +118,17 @@ AREAS = {
         "gateway": "10.10.60.1/24",
         "hosts": [
             ("fin1", "10.10.60.11/24"),
+        ],
+    },
+    "guest": {
+        "label": "访客网络",
+        "switch": "s_guest",
+        "vlan": 70,
+        "subnet": "10.10.70.0/24",
+        "gateway": "10.10.70.1/24",
+        "dhcp": True,
+        "hosts": [
+            ("guest1", "dhcp"),
         ],
     },
     "server": {
@@ -132,6 +160,26 @@ HOST_GATEWAYS = {
     for area in AREAS.values()
     for host, _ip in area["hosts"]
 }
+
+
+def is_dhcp_host(host_ip: str) -> bool:
+    """Return True when a host should obtain its address dynamically."""
+
+    return host_ip == "dhcp"
+
+
+def host_display_ip(host_ip: str) -> str:
+    """Return the visible host address for static and DHCP hosts."""
+
+    return "DHCP" if is_dhcp_host(host_ip) else host_ip.split("/")[0]
+
+
+def dhcp_pool(area: dict) -> tuple[str, str, str]:
+    """Return DHCP start IP, end IP and netmask for an area."""
+
+    network = ipaddress.ip_network(str(area["subnet"]))
+    prefix = str(network.network_address).rsplit(".", 1)[0]
+    return f"{prefix}.100", f"{prefix}.199", str(network.netmask)
 
 
 def access_port_name(switch_name: str, host_index: int) -> str:
@@ -231,11 +279,8 @@ class CampusTopo(Topo):
             )
             gateway_ip = area["gateway"].split("/")[0]
             for host_index, (host_name, host_ip) in enumerate(area["hosts"], start=1):
-                host = self.addHost(
-                    host_name,
-                    ip=host_ip,
-                    defaultRoute=f"via {gateway_ip}",
-                )
+                host_params = {"ip": None} if is_dhcp_host(host_ip) else {"ip": host_ip, "defaultRoute": f"via {gateway_ip}"}
+                host = self.addHost(host_name, **host_params)
                 self.addLink(
                     host,
                     switch,
@@ -306,6 +351,10 @@ def configure_security(router: Node) -> None:
     # External simulation subnet cannot enter the campus intranet.
     router.cmd("iptables -A FORWARD -s 203.0.113.0/24 -d 10.10.0.0/16 -j DROP")
 
+    # Guest network can use shared services but cannot enter campus user/admin VLANs.
+    router.cmd("iptables -A FORWARD -s 10.10.70.0/24 -d 10.10.100.0/24 -p tcp -m multiport --dports 80,21 -j ACCEPT")
+    router.cmd("iptables -A FORWARD -s 10.10.70.0/24 -d 10.10.0.0/16 -j REJECT")
+
     normal_user_subnets = ["10.10.10.0/24", "10.10.20.0/24", "10.10.30.0/24"]
     sensitive_subnets = ["10.10.50.0/24", "10.10.60.0/24"]
     for source in normal_user_subnets:
@@ -318,17 +367,92 @@ def configure_security(router: Node) -> None:
     router.cmd("iptables -A FORWARD -s 10.10.40.0/24 -d 10.10.60.0/24 -j ACCEPT")
 
 
+def configure_dynamic_hosts(net: Mininet) -> None:
+    """Clear any auto-assigned address from DHCP demonstration hosts."""
+
+    for area in AREAS.values():
+        for host_name, host_ip in area["hosts"]:
+            if not is_dhcp_host(host_ip):
+                continue
+            host = net.get(host_name)
+            intf = host.defaultIntf().name
+            host.cmd(f"ip addr flush dev {intf}")
+            host.cmd(f"ip link set {intf} up")
+            host.cmd("ip route flush table main")
+
+
+def start_dns_dhcp_services(net: Mininet) -> None:
+    """Start dnsmasq on the router for campus DNS and DHCP service."""
+
+    router = net.get("r_core")
+    router.cmd("if [ -s /tmp/campus_dnsmasq.pid ]; then kill $(cat /tmp/campus_dnsmasq.pid) 2>/dev/null || true; fi; rm -f /tmp/campus_dnsmasq.pid")
+
+    config_lines = [
+        "port=53",
+        "bind-interfaces",
+        "dhcp-authoritative",
+        "dhcp-broadcast",
+        "domain=campus.local",
+        "local=/campus.local/",
+        "log-queries",
+        "log-dhcp",
+    ]
+    for domain, ip in DNS_RECORDS.items():
+        config_lines.append(f"address=/{domain}/{ip}")
+    for area_id, area in AREAS.items():
+        if area_id not in DHCP_SERVICE_AREAS:
+            continue
+        start_ip, end_ip, netmask = dhcp_pool(area)
+        tag = f"vlan{area['vlan']}"
+        gateway = area["gateway"].split("/")[0]
+        intf = router_vlan_intf(area["vlan"])
+        config_lines.extend(
+            [
+                f"interface={intf}",
+                f"dhcp-range=set:{tag},{start_ip},{end_ip},{netmask},12h",
+                f"dhcp-option=tag:{tag},option:router,{gateway}",
+                f"dhcp-option=tag:{tag},option:dns-server,{gateway}",
+                f"dhcp-option=tag:{tag},option:domain-name,campus.local",
+            ]
+        )
+
+    conf = "\n".join(config_lines) + "\n"
+    router.cmd(f"printf %s {shlex.quote(conf)} > /tmp/campus_dnsmasq.conf")
+    router.cmd(
+        "dnsmasq --conf-file=/tmp/campus_dnsmasq.conf "
+        "--pid-file=/tmp/campus_dnsmasq.pid "
+        "--dhcp-leasefile=/tmp/campus_dnsmasq.leases "
+        "--log-facility=/tmp/campus_dnsmasq.log"
+    )
+
+
+def start_web_service(web: Node) -> None:
+    """Start the HTTP service on the given Mininet host."""
+
+    web.cmd("if [ -s /tmp/campus_web.pid ]; then kill $(cat /tmp/campus_web.pid) 2>/dev/null || true; fi; rm -f /tmp/campus_web.pid")
+    web.cmd(f"cd {shlex.quote(str(WEB_ROOT))} && nohup python3 -m http.server 80 > /tmp/campus_web.log 2>&1 & echo $! > /tmp/campus_web.pid")
+
+
+def start_ftp_service(ftp: Node) -> None:
+    """Start the FTP service on the given Mininet host."""
+
+    ftp.cmd("if [ -s /tmp/campus_ftp.pid ]; then kill $(cat /tmp/campus_ftp.pid) 2>/dev/null || true; fi; rm -f /tmp/campus_ftp.pid")
+    ftp.cmd(
+        f"nohup python3 {shlex.quote(str(FTP_SERVER))} "
+        f"--root {shlex.quote(str(FTP_ROOT))} --port 21 "
+        "> /tmp/campus_ftp.log 2>&1 & echo $! > /tmp/campus_ftp.pid"
+    )
+
+
 def start_services(net: Mininet) -> None:
-    """Start Web and FTP services on the server-area hosts."""
+    """Start Web, FTP, DNS and DHCP services."""
 
     web = net.get("web")
     ftp = net.get("ftp")
 
-    web.cmd("pkill -f 'http.server 80' || true")
-    ftp.cmd("pkill -f 'simple_ftp_server.py' || true")
-
-    web.cmd(f"cd {WEB_ROOT} && nohup python3 -m http.server 80 > /tmp/campus_web.log 2>&1 &")
-    ftp.cmd(f"nohup python3 {FTP_SERVER} --root {FTP_ROOT} --port 21 > /tmp/campus_ftp.log 2>&1 &")
+    start_web_service(web)
+    start_ftp_service(ftp)
+    start_dns_dhcp_services(net)
 
 
 def print_summary(net: Mininet) -> None:
@@ -336,7 +460,7 @@ def print_summary(net: Mininet) -> None:
     for area in AREAS.values():
         info(f"{area['label']}: VLAN {area['vlan']}, {area['subnet']}, 网关 {area['gateway'].split('/')[0]}\n")
         for host_name, host_ip in area["hosts"]:
-            info(f"  - {host_name}: {host_ip.split('/')[0]}\n")
+            info(f"  - {host_name}: {host_display_ip(host_ip)}\n")
     info("\n*** 服务地址: Web=http://10.10.100.10, FTP=ftp://10.10.100.20/README.txt\n")
     info("*** 敏感区域 ACL: 学生宿舍/教学楼/图书馆 -> 人事处/财务处 被拒绝，办公楼允许访问\n\n")
 
@@ -372,6 +496,10 @@ def run_tests(net: Mininet) -> int:
         ("办公楼访问人事处允许", "office1", "ping -c 1 -W 1 10.10.50.11", True),
         ("办公楼访问财务处允许", "office1", "ping -c 1 -W 1 10.10.60.11", True),
         ("外部主机访问 Web 被阻断", "attacker1", "ping -c 1 -W 1 10.10.100.10", False),
+        ("访客主机 DHCP 获取地址", "guest1", "dhclient -4 -v -1 guest1-eth0 >/dev/null 2>&1; ip -4 addr show guest1-eth0 | grep -q 10.10.70.", True),
+        ("学生主机解析 Web 校园域名", "stu1", "dig +short @10.10.10.1 web.campus.local | grep -q 10.10.100.10", True),
+        ("访客访问 Web 服务允许", "guest1", "curl -fsS http://10.10.100.10", True),
+        ("访客访问办公楼被隔离", "guest1", "ping -c 1 -W 1 10.10.40.11", False),
     ]
     results = [run_case(net, *case) for case in cases]
     passed = sum(1 for item in results if item) + (1 if vlan_ok else 0)
@@ -412,6 +540,7 @@ def main() -> int:
         info("*** 启动校园网拓扑\n")
         net.start()
         configure_vlans(net)
+        configure_dynamic_hosts(net)
         configure_security(net.get("r_core"))
         start_services(net)
         print_summary(net)

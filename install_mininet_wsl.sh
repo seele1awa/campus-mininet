@@ -22,6 +22,9 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::ForceIPv4=true install -
   iproute2 \
   iptables \
   curl \
+  dnsmasq \
+  dnsutils \
+  isc-dhcp-client \
   iperf3 \
   net-tools \
   python3

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>校园网实时联动控制台</title>
-  <link rel="stylesheet" href="styles.css?v=live2">
+  <link rel="stylesheet" href="styles.css?v=live5">
 </head>
 <body>
   <header class="topbar">
@@ -35,7 +35,7 @@
           <span><i class="legend-dot denied"></i>失败/阻断</span>
         </div>
       </div>
-      <svg id="topologySvg" viewBox="0 0 1160 720" role="img" aria-label="校园网拓扑图"></svg>
+      <svg id="topologySvg" viewBox="0 0 1280 800" role="img" aria-label="校园网拓扑图"></svg>
     </section>
 
     <aside class="control-panel" aria-label="实时操作">
@@ -56,6 +56,10 @@
             <option value="web">访问 Web 页面</option>
             <option value="ftp">下载 FTP 文件</option>
             <option value="perf">带宽测试 iperf3</option>
+            <option value="dhcp">DHCP 获取地址</option>
+            <option value="dns">DNS 域名解析</option>
+            <option value="fault_down">制造故障</option>
+            <option value="fault_up">恢复故障</option>
           </select>
         </label>
         <button id="runAction" type="button">执行真实测试</button>
@@ -123,6 +127,26 @@
       </div>
       <div id="eventLog" class="event-log"></div>
     </section>
+
+    <section class="output-panel">
+      <div class="panel-head compact">
+        <div>
+          <h2>DHCP/DNS 状态</h2>
+          <p>展示动态地址池和校园域名解析记录。</p>
+        </div>
+      </div>
+      <div id="dhcpDnsStatus" class="status-list"></div>
+    </section>
+
+    <section class="output-panel">
+      <div class="panel-head compact">
+        <div>
+          <h2>故障模拟状态</h2>
+          <p>展示当前被断开的链路或停止的服务。</p>
+        </div>
+      </div>
+      <div id="faultStatus" class="status-list"></div>
+    </section>
   </section>
 
   <section class="audit-band">
@@ -152,6 +176,6 @@
     <div id="policyGrid" class="policy-grid"></div>
   </section>
 
-  <script src="app.js?v=live2"></script>
+  <script src="app.js?v=live5"></script>
 </body>
 </html>

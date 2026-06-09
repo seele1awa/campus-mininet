@@ -299,7 +299,7 @@ button:disabled {
 
 .lower-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr) minmax(280px, 0.65fr);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 18px;
   padding: 0 clamp(18px, 4vw, 48px) 22px;
 }
@@ -364,6 +364,38 @@ pre {
 
 .event-item.fail {
   border-color: #fecaca;
+}
+
+.status-list {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  max-height: 304px;
+  overflow: auto;
+}
+
+.status-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcff;
+  font-size: 13px;
+}
+
+.status-item strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.status-item p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.status-item.fault {
+  border-color: #fecaca;
+  background: #fff7f7;
 }
 
 .scenario-band,
@@ -528,6 +560,12 @@ code {
   stroke-dasharray: 10 8;
 }
 
+.svg-link.fault {
+  stroke: #ea580c;
+  stroke-width: 6;
+  stroke-dasharray: 4 8;
+}
+
 .node-group {
   cursor: pointer;
 }
@@ -541,6 +579,21 @@ code {
 .node-group.selected .node-shape {
   stroke: #111827;
   stroke-width: 4;
+}
+
+.node-group.path-node .node-shape {
+  stroke: #f59e0b;
+  stroke-width: 4;
+}
+
+.node-group.selected.path-node .node-shape {
+  stroke: #111827;
+  stroke-width: 5;
+}
+
+.node-group.fault .node-shape {
+  stroke: #ea580c;
+  stroke-width: 5;
 }
 
 .node-label {
