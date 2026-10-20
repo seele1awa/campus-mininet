@@ -10,6 +10,7 @@
   --red: #dc2626;
   --green: #16a34a;
   --violet: #7c3aed;
+  --cyan: #0891b2;
   --shadow: 0 16px 36px rgba(23, 32, 51, 0.10);
 }
 
@@ -178,12 +179,13 @@ h2 {
 .legend-dot.switch { background: var(--blue); }
 .legend-dot.host { background: var(--amber); }
 .legend-dot.server { background: var(--violet); }
+.legend-dot.vpn { background: var(--cyan); }
 .legend-dot.denied { background: var(--red); }
 
 #topologySvg {
   display: block;
   width: 100%;
-  min-height: 590px;
+  min-height: 680px;
   background: #f8fafc;
 }
 
@@ -398,6 +400,53 @@ pre {
   background: #fff7f7;
 }
 
+.noc-panel {
+  grid-column: span 2;
+}
+
+.noc-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(90px, 1fr));
+  gap: 10px;
+  padding: 14px 14px 0;
+}
+
+.noc-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcff;
+}
+
+.noc-card strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 22px;
+}
+
+.noc-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.noc-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+.noc-columns h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.compact-list {
+  max-height: 230px;
+  padding: 0;
+}
+
 .scenario-band,
 .policy-band,
 .audit-band {
@@ -549,6 +598,17 @@ code {
   stroke-width: 3;
 }
 
+.svg-link.wan {
+  stroke: #94a3b8;
+  stroke-dasharray: 8 7;
+}
+
+.svg-link.vpn {
+  stroke: var(--cyan);
+  stroke-width: 4;
+  stroke-dasharray: 12 7;
+}
+
 .svg-link.active {
   stroke: var(--green);
   stroke-width: 6;
@@ -624,6 +684,11 @@ code {
   stroke-width: 1.5;
 }
 
+.area-box.campus-box {
+  fill: #f0fdfa;
+  stroke: #99f6e4;
+}
+
 @media (max-width: 1180px) {
   .topbar {
     align-items: stretch;
@@ -640,6 +705,10 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .noc-panel {
+    grid-column: span 1;
+  }
+
   .scenario-list,
   .policy-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -649,6 +718,8 @@ code {
 @media (max-width: 740px) {
   .runtime-bar,
   .control-panel,
+  .noc-summary,
+  .noc-columns,
   .scenario-list,
   .policy-grid,
   .split {

@@ -1,6 +1,7 @@
 const model = {
   coreSwitch: { id: "s_core", label: "s_core", role: "core-switch", ip: "trunk", x: 640, y: 330 },
   router: { id: "r_core", label: "核心路由", role: "router", ip: "VLAN 子接口网关", x: 640, y: 430 },
+  wanSwitch: { id: "s_wan", label: "s_wan", role: "wan-switch", ip: "WAN/VPN", x: 1350, y: 430 },
   areas: [
     {
       id: "student",
@@ -111,6 +112,44 @@ const model = {
       hiddenBox: true,
     },
   ],
+  campuses: [
+    {
+      id: "jiading",
+      label: "嘉定校区",
+      subnet: "10.20.10.0/24",
+      gateway: "10.20.10.1",
+      vpnId: "vpn_jiading",
+      vpnLabel: "宝山-嘉定 VPN",
+      switch: { id: "s_jiading", label: "s_jiading", x: 1450, y: 175 },
+      router: { id: "r_jiading", label: "r_jiading", x: 1350, y: 175 },
+      hosts: [{ id: "jd1", label: "jd1", ip: "10.20.10.11", x: 1540, y: 175 }],
+      box: { x: 1265, y: 65, width: 310, height: 210 },
+    },
+    {
+      id: "yanchang",
+      label: "延长校区",
+      subnet: "10.30.10.0/24",
+      gateway: "10.30.10.1",
+      vpnId: "vpn_yanchang",
+      vpnLabel: "宝山-延长 VPN",
+      switch: { id: "s_yanchang", label: "s_yanchang", x: 1450, y: 430 },
+      router: { id: "r_yanchang", label: "r_yanchang", x: 1350, y: 530 },
+      hosts: [{ id: "yc1", label: "yc1", ip: "10.30.10.11", x: 1540, y: 430 }],
+      box: { x: 1265, y: 320, width: 310, height: 235 },
+    },
+    {
+      id: "tokyo",
+      label: "日本东京校区",
+      subnet: "10.40.10.0/24",
+      gateway: "10.40.10.1",
+      vpnId: "vpn_tokyo",
+      vpnLabel: "宝山-东京 VPN",
+      switch: { id: "s_tokyo", label: "s_tokyo", x: 1450, y: 720 },
+      router: { id: "r_tokyo", label: "r_tokyo", x: 1350, y: 685 },
+      hosts: [{ id: "tokyo1", label: "tokyo1", ip: "10.40.10.11", x: 1540, y: 720 }],
+      box: { x: 1265, y: 620, width: 310, height: 240 },
+    },
+  ],
 };
 
 const fallbackPolicies = [
@@ -118,6 +157,7 @@ const fallbackPolicies = [
   { title: "办公业务放行", body: "办公楼允许访问人事处和财务处。" },
   { title: "服务区共享", body: "内网用户允许访问 Web/FTP 服务器。" },
   { title: "外部访问阻断", body: "外部模拟区不能进入校园内网。" },
+  { title: "多校区 VPN", body: "分校区经 GRE VPN 接入宝山主校区，访问敏感区会被阻断并审计。" },
 ];
 
 const fallbackTemplates = [
@@ -148,6 +188,12 @@ const faultTargets = [
   { id: "ftp", label: "FTP 服务" },
 ];
 
+const vpnTargets = [
+  { id: "vpn_jiading", label: "宝山-嘉定 VPN" },
+  { id: "vpn_yanchang", label: "宝山-延长 VPN" },
+  { id: "vpn_tokyo", label: "宝山-东京 VPN" },
+];
+
 const quickScenarios = [
   { label: "宿舍内部 ping", action: "ping", source: "stu1", target: "stu2" },
   { label: "宿舍到教学楼 ping", action: "ping", source: "stu1", target: "teach1" },
@@ -170,6 +216,13 @@ const quickScenarios = [
   { label: "恢复 Web 服务", action: "fault_up", source: "stu1", target: "web" },
   { label: "停止 FTP 服务", action: "fault_down", source: "stu1", target: "ftp" },
   { label: "恢复 FTP 服务", action: "fault_up", source: "stu1", target: "ftp" },
+  { label: "宝山访问嘉定校区", action: "vpn_ping", source: "stu1", target: "jd1" },
+  { label: "嘉定访问宝山 Web", action: "vpn_web", source: "jd1", target: "web" },
+  { label: "延长访问宝山 FTP", action: "ftp", source: "yc1", target: "ftp" },
+  { label: "东京访问宝山 Web", action: "vpn_web", source: "tokyo1", target: "web" },
+  { label: "断开嘉定 VPN", action: "vpn_down", source: "operator", target: "vpn_jiading" },
+  { label: "恢复嘉定 VPN", action: "vpn_up", source: "operator", target: "vpn_jiading" },
+  { label: "嘉定访问人事处", action: "vpn_ping", source: "jd1", target: "hr1" },
 ];
 
 const svg = document.getElementById("topologySvg");
@@ -188,6 +241,9 @@ const resultReason = document.getElementById("resultReason");
 const terminalOutput = document.getElementById("terminalOutput");
 const nodeDetails = document.getElementById("nodeDetails");
 const eventLog = document.getElementById("eventLog");
+const nocSummary = document.getElementById("nocSummary");
+const campusStatus = document.getElementById("campusStatus");
+const vpnStatus = document.getElementById("vpnStatus");
 const dhcpDnsStatus = document.getElementById("dhcpDnsStatus");
 const faultStatus = document.getElementById("faultStatus");
 const auditLog = document.getElementById("auditLog");
@@ -206,6 +262,10 @@ let templateSignature = "";
 let dnsRecords = { ...staticDnsRecords };
 let dhcpSummary = [];
 let activeFaults = [];
+let campusSummary = [];
+let vpnTunnels = [];
+let nocSummaryData = {};
+let serviceStatus = [];
 let activePath = null;
 
 function addNode(node, areaId, role) {
@@ -215,13 +275,25 @@ function addNode(node, areaId, role) {
 function prepareModel() {
   addNode(model.router, "core", "router");
   addNode(model.coreSwitch, "core", "core-switch");
+  addNode(model.wanSwitch, "wan", "wan-switch");
   links.push({ a: model.coreSwitch.id, b: model.router.id, id: `${model.coreSwitch.id}-${model.router.id}`, mode: "trunk" });
+  links.push({ a: model.router.id, b: model.wanSwitch.id, id: `${model.router.id}-${model.wanSwitch.id}`, mode: "wan" });
   model.areas.forEach((area) => {
     addNode({ ...area.switch, vlan: area.vlan, portMode: "trunk" }, area.id, "switch");
     links.push({ a: area.switch.id, b: model.coreSwitch.id, id: `${area.switch.id}-${model.coreSwitch.id}`, mode: "trunk" });
     area.hosts.forEach((host) => {
       addNode({ ...host, vlan: area.vlan, portMode: "access" }, area.id, host.role || "host");
       links.push({ a: host.id, b: area.switch.id, id: `${host.id}-${area.switch.id}`, mode: "access" });
+    });
+  });
+  model.campuses.forEach((campus) => {
+    addNode({ ...campus.router, ip: campus.gateway, vpnId: campus.vpnId }, campus.id, "branch-router");
+    addNode({ ...campus.switch, portMode: "access", vpnId: campus.vpnId }, campus.id, "switch");
+    links.push({ a: campus.router.id, b: model.wanSwitch.id, id: `${campus.router.id}-${model.wanSwitch.id}`, mode: "vpn", vpnId: campus.vpnId });
+    links.push({ a: campus.router.id, b: campus.switch.id, id: `${campus.router.id}-${campus.switch.id}`, mode: "branch" });
+    campus.hosts.forEach((host) => {
+      addNode({ ...host, portMode: "access", vpnId: campus.vpnId }, campus.id, "host");
+      links.push({ a: host.id, b: campus.switch.id, id: `${host.id}-${campus.switch.id}`, mode: "access" });
     });
   });
 }
@@ -244,14 +316,32 @@ function mergeTopology(status) {
     const switchNode = nodes.get(area.switch.id);
     if (switchNode) Object.assign(switchNode, { vlan: area.vlan, portMode: "trunk" });
   });
+  status.campuses?.forEach((nextCampus) => {
+    if (nextCampus.id === "baoshan") return;
+    const campus = model.campuses.find((item) => item.id === nextCampus.id);
+    if (!campus) return;
+    campus.gateway = nextCampus.gateway || campus.gateway;
+    campus.subnet = nextCampus.subnet || campus.subnet;
+    const host = campus.hosts.find((item) => item.id === nextCampus.representative);
+    if (host && nextCampus.representativeIp) {
+      host.ip = nextCampus.representativeIp;
+      const node = nodes.get(host.id);
+      if (node) node.ip = host.ip;
+    }
+  });
 }
 
 function areaForNode(id) {
-  return model.areas.find((area) => area.id === nodes.get(id)?.areaId);
+  const areaId = nodes.get(id)?.areaId;
+  return [...model.areas, ...model.campuses].find((area) => area.id === areaId);
 }
 
 function visualNodeId(id) {
   return dnsTargets[id] || id;
+}
+
+function campusForVpn(vpnId) {
+  return model.campuses.find((campus) => campus.vpnId === vpnId);
 }
 
 function hostNodes() {
@@ -271,7 +361,10 @@ function setHostOptions() {
   const faultOptions = faultTargets
     .map((item) => `<option value="${item.id}">${item.label} - ${item.id}</option>`)
     .join("");
-  actionTarget.innerHTML = [options, domainOptions, faultOptions].filter(Boolean).join("");
+  const vpnOptions = vpnTargets
+    .map((item) => `<option value="${item.id}">${item.label} - ${item.id}</option>`)
+    .join("");
+  actionTarget.innerHTML = [options, domainOptions, faultOptions, vpnOptions].filter(Boolean).join("");
   actionSource.value = "stu1";
   actionTarget.value = "web";
   messageSource.value = "office1";
@@ -306,20 +399,23 @@ function svgEl(name, attrs = {}) {
 }
 
 function hasFault(target) {
-  return activeFaults.some((fault) => fault.target === target);
+  return activeFaults.some((fault) => fault.target === target || nodes.get(target)?.vpnId === fault.target);
 }
 
 function isFaultedLink(link) {
-  return activeFaults.some((fault) => fault.type === "link" && (link.a === fault.target || link.b === fault.target));
+  return activeFaults.some((fault) => {
+    if (fault.type === "vpn") return link.vpnId === fault.target;
+    return fault.type === "link" && (link.a === fault.target || link.b === fault.target);
+  });
 }
 
 function renderTopology() {
   svg.innerHTML = "";
 
-  model.areas.forEach((area) => {
+  [...model.areas, ...model.campuses].forEach((area) => {
     if (area.hiddenBox) return;
     svg.appendChild(svgEl("rect", {
-      class: "area-box",
+      class: `area-box ${area.vpnId ? "campus-box" : ""}`,
       x: area.box.x,
       y: area.box.y,
       width: area.box.width,
@@ -331,7 +427,7 @@ function renderTopology() {
       x: area.box.x + area.box.width / 2,
       y: area.box.y + 28,
     });
-    label.textContent = `${area.label} · VLAN ${area.vlan}`;
+    label.textContent = area.vpnId ? `${area.label} · ${area.vpnLabel}` : `${area.label} · VLAN ${area.vlan}`;
     svg.appendChild(label);
   });
 
@@ -339,7 +435,7 @@ function renderTopology() {
     const a = nodes.get(link.a);
     const b = nodes.get(link.b);
     svg.appendChild(svgEl("line", {
-      class: `svg-link ${isFaultedLink(link) ? "fault" : ""}`,
+      class: `svg-link ${link.mode || ""} ${isFaultedLink(link) ? "fault" : ""}`,
       id: `link-${link.id}`,
       x1: a.x,
       y1: a.y,
@@ -359,8 +455,9 @@ function renderTopology() {
       if (event.key === "Enter" || event.key === " ") selectNode(node.id);
     });
 
-    const color = node.role === "router" ? "#0f766e" : node.role === "core-switch" ? "#1d4ed8" : node.role === "switch" ? "#2563eb" : node.role === "server" ? "#7c3aed" : "#b45309";
-    const shape = svgEl(node.role === "switch" || node.role === "core-switch" ? "rect" : "circle", node.role === "switch" || node.role === "core-switch"
+    const color = node.role === "router" ? "#0f766e" : node.role === "branch-router" ? "#0f766e" : node.role === "wan-switch" ? "#0891b2" : node.role === "core-switch" ? "#1d4ed8" : node.role === "switch" ? "#2563eb" : node.role === "server" ? "#7c3aed" : "#b45309";
+    const isSwitchShape = ["switch", "core-switch", "wan-switch"].includes(node.role);
+    const shape = svgEl(isSwitchShape ? "rect" : "circle", isSwitchShape
       ? { class: "node-shape", x: node.x - 31, y: node.y - 22, width: 62, height: 44, rx: 8, fill: color }
       : { class: "node-shape", cx: node.x, cy: node.y, r: node.role === "router" ? 40 : 28, fill: color });
     group.appendChild(shape);
@@ -369,8 +466,8 @@ function renderTopology() {
     label.textContent = node.label;
     group.appendChild(label);
 
-    const sub = svgEl("text", { class: "node-sub", x: node.x, y: node.y + (node.role === "switch" || node.role === "core-switch" ? 40 : 46) });
-    sub.textContent = node.role === "router" ? "L3 VLAN GW" : node.role === "core-switch" ? "trunk" : node.role === "switch" ? `VLAN ${node.vlan}` : node.ip;
+    const sub = svgEl("text", { class: "node-sub", x: node.x, y: node.y + (isSwitchShape ? 40 : 46) });
+    sub.textContent = node.role === "router" ? "L3 VLAN GW" : node.role === "branch-router" ? "VPN GW" : node.role === "wan-switch" ? "WAN" : node.role === "core-switch" ? "trunk" : node.role === "switch" ? (node.vlan ? `VLAN ${node.vlan}` : "LAN") : node.ip;
     group.appendChild(sub);
     svg.appendChild(group);
 
@@ -395,17 +492,23 @@ function renderNodeDetails(id) {
   const area = areaForNode(id);
   const details = [
     ["节点", node.label],
-    ["类型", node.role === "router" ? "核心路由器" : node.role === "core-switch" ? "核心交换机" : node.role === "switch" ? "接入交换机" : node.role === "server" ? "服务器" : "终端主机"],
+    ["类型", node.role === "router" ? "核心路由器" : node.role === "branch-router" ? "分校区 VPN 路由器" : node.role === "wan-switch" ? "WAN/VPN 汇聚" : node.role === "core-switch" ? "核心交换机" : node.role === "switch" ? "接入交换机" : node.role === "server" ? "服务器" : "终端主机"],
     ["区域", area ? area.label : "核心层"],
     ["地址", node.ip || area?.gateway || "多接口"],
   ];
   if (area) {
-    details.push(["VLAN", area.vlan], ["端口模式", node.portMode || (node.role === "switch" ? "trunk" : "access")], ["网段", area.subnet], ["网关", area.gateway]);
-    if (area.dhcp || node.dhcp) details.push(["DHCP", node.dhcp ? "动态地址主机" : "区域启用地址池"]);
-    details.push(["DNS", area.gateway]);
-    if (area.id === "guest") details.push(["访客策略", "仅允许访问 Web/FTP 服务区"]);
+    if (area.vpnId) {
+      details.push(["VPN", area.vpnLabel], ["网段", area.subnet], ["网关", area.gateway], ["角色", "分校区简单示意网络"]);
+    } else {
+      details.push(["VLAN", area.vlan], ["端口模式", node.portMode || (node.role === "switch" ? "trunk" : "access")], ["网段", area.subnet], ["网关", area.gateway]);
+      if (area.dhcp || node.dhcp) details.push(["DHCP", node.dhcp ? "动态地址主机" : "区域启用地址池"]);
+      details.push(["DNS", area.gateway]);
+      if (area.id === "guest") details.push(["访客策略", "仅允许访问 Web/FTP 服务区"]);
+    }
   } else if (node.role === "core-switch") {
     details.push(["端口模式", "trunk"], ["承载 VLAN", model.areas.map((item) => item.vlan).join(", ")]);
+  } else if (node.role === "wan-switch") {
+    details.push(["承载业务", "四校区 WAN 与 GRE VPN 隧道"]);
   }
   if (node.service) {
     details.push(["服务", node.service]);
@@ -415,14 +518,32 @@ function renderNodeDetails(id) {
 
 function pathBetween(source, target) {
   target = visualNodeId(target);
+  if (vpnTargets.some((item) => item.id === target)) {
+    const campus = campusForVpn(target);
+    return campus ? ["r_core", "s_wan", campus.router.id] : [];
+  }
   const sourceArea = areaForNode(source);
   const targetArea = areaForNode(target);
   if (!sourceArea || !targetArea) return [];
+  const sourceBranch = Boolean(sourceArea.vpnId);
+  const targetBranch = Boolean(targetArea.vpnId);
   if (nodes.get(target)?.role === "switch") {
-    return sourceArea.id === targetArea.id ? [source, target] : [source, sourceArea.switch.id, "s_core", target];
+    if (sourceArea.id === targetArea.id) return [source, target];
+    return sourceBranch
+      ? [source, sourceArea.switch.id, sourceArea.router.id, "s_wan", target]
+      : [source, sourceArea.switch.id, "s_core", target];
   }
   if (sourceArea.id === targetArea.id) {
     return [source, sourceArea.switch.id, target];
+  }
+  if (sourceBranch && targetBranch) {
+    return [source, sourceArea.switch.id, sourceArea.router.id, "s_wan", "r_core", "s_wan", targetArea.router.id, targetArea.switch.id, target];
+  }
+  if (sourceBranch) {
+    return [source, sourceArea.switch.id, sourceArea.router.id, "s_wan", "r_core", "s_core", targetArea.switch.id, target];
+  }
+  if (targetBranch) {
+    return [source, sourceArea.switch.id, "s_core", "r_core", "s_wan", targetArea.router.id, targetArea.switch.id, target];
   }
   return [source, sourceArea.switch.id, "s_core", "r_core", "s_core", targetArea.switch.id, target];
 }
@@ -566,6 +687,44 @@ function renderInfraStatus() {
     : '<article class="status-item"><strong>无活动故障</strong><p>链路和服务处于正常状态。</p></article>';
 }
 
+function renderNocStatus() {
+  if (!nocSummary || !campusStatus || !vpnStatus) return;
+
+  const summary = [
+    ["校区在线", `${nocSummaryData.campusOnline || 0}/${nocSummaryData.campusTotal || 4}`],
+    ["VPN 正常", `${nocSummaryData.vpnUp || 0}/${nocSummaryData.vpnTotal || vpnTargets.length}`],
+    ["服务正常", `${nocSummaryData.serviceUp || 0}/${nocSummaryData.serviceTotal || 3}`],
+    ["活动故障", `${nocSummaryData.activeFaults || 0}`],
+    ["高风险审计", `${nocSummaryData.highRisk || 0}`],
+  ];
+  nocSummary.innerHTML = summary
+    .map(([label, value]) => `<article class="noc-card"><strong>${value}</strong><span>${label}</span></article>`)
+    .join("");
+
+  campusStatus.innerHTML = campusSummary.length
+    ? campusSummary.map((campus) => `
+        <article class="status-item ${campus.status === "online" ? "" : "fault"}">
+          <strong>${campus.label}</strong>
+          <p>${campus.subnet} · ${campus.representative || campus.gateway} · ${campus.status}</p>
+        </article>
+      `).join("")
+    : '<article class="status-item"><strong>暂无校区状态</strong><p>启动后端后显示四校区在线情况。</p></article>';
+
+  const serviceItems = serviceStatus.map((service) => `
+    <article class="status-item ${service.ok ? "" : "fault"}">
+      <strong>${service.label}</strong>
+      <p>${service.detail}</p>
+    </article>
+  `);
+  const tunnelItems = vpnTunnels.map((tunnel) => `
+    <article class="status-item ${tunnel.ok ? "" : "fault"}">
+      <strong>${tunnel.label}</strong>
+      <p>${tunnel.network} · ${tunnel.state} · ${tunnel.detail}</p>
+    </article>
+  `);
+  vpnStatus.innerHTML = [...tunnelItems, ...serviceItems].join("") || '<article class="status-item"><strong>暂无 VPN 状态</strong><p>启动后端后显示隧道和服务状态。</p></article>';
+}
+
 async function refreshStatus() {
   try {
     const status = await api("/api/status");
@@ -586,6 +745,11 @@ async function refreshStatus() {
     dnsRecords = status.dnsRecords || dnsRecords;
     dhcpSummary = status.dhcpSummary || [];
     activeFaults = status.faults || [];
+    campusSummary = status.campuses || [];
+    vpnTunnels = status.vpnTunnels || [];
+    serviceStatus = status.serviceStatus || [];
+    nocSummaryData = status.nocSummary || {};
+    renderNocStatus();
     renderInfraStatus();
     renderTopology();
     updateBadges();
@@ -595,6 +759,7 @@ async function refreshStatus() {
     updateBadges();
     renderEvents([]);
     renderAudit([], {});
+    renderNocStatus();
     renderInfraStatus();
   }
 }
@@ -621,6 +786,9 @@ function commandOutput(result) {
   }
   if (result.action === "fault_down" || result.action === "fault_up") {
     parts.push(`故障状态: ${result.output || "-"}`);
+  }
+  if (result.action === "vpn_down" || result.action === "vpn_up") {
+    parts.push(`VPN 状态: ${result.tunnel?.state || "-"}`, `VPN 隧道: ${result.tunnel?.label || result.target}`);
   }
   parts.push("", "输出:", result.output || "(无输出)");
   if (result.received) {
@@ -651,6 +819,12 @@ function showResult(result) {
       : "DNS 解析失败，请确认 r_core 上 dnsmasq 服务正常。";
   } else if (result.action === "fault_down" || result.action === "fault_up") {
     resultReason.textContent = result.output || (ok ? "故障操作完成。" : "故障操作失败。");
+  } else if (result.action === "vpn_down" || result.action === "vpn_up") {
+    resultReason.textContent = result.output || (ok ? "VPN 操作完成。" : "VPN 操作失败。");
+  } else if (result.action === "vpn_ping") {
+    resultReason.textContent = ok ? "跨校区 ICMP 报文经 VPN 隧道到达目标。" : "跨校区 VPN 连通性失败，可能隧道被断开或 ACL 生效。";
+  } else if (result.action === "vpn_web") {
+    resultReason.textContent = ok ? "分校区经 VPN 隧道访问到宝山主校区 Web 服务。" : "跨校区 Web 访问失败，可能 VPN 或服务不可达。";
   } else if (result.action === "perf") {
     resultReason.textContent = ok
       ? `iperf3 实测吞吐量 ${result.mbps} Mbps。${result.expectedProfile}`
@@ -665,7 +839,7 @@ function showResult(result) {
   terminalOutput.textContent = commandOutput(result);
   const targetNode = visualNodeId(result.target);
   if (nodes.has(targetNode)) selectNode(targetNode);
-  const path = pathBetween(result.source, result.target);
+  const path = result.path || pathBetween(result.source, result.target);
   markPath(path, ok);
   pathSummary.textContent = `${nodes.get(result.source)?.label || result.source} -> ${nodes.get(targetNode)?.label || result.target}: ${path.map((id) => nodes.get(id)?.label || id).join(" -> ")}`;
 }
@@ -763,6 +937,7 @@ async function init() {
   renderTopology();
   renderPolicies();
   renderScenarios();
+  renderNocStatus();
   renderInfraStatus();
   renderNodeDetails(selectedNode);
   bindEvents();

@@ -24,9 +24,13 @@ from mininet.log import setLogLevel
 
 from campus_net import (
     AREAS,
+    BRANCH_CAMPUSES,
     DNS_RECORDS,
+    VPN_TUNNELS,
     access_trunk_port_name,
     build_net,
+    cidr_address,
+    configure_branch_campuses,
     configure_dynamic_hosts,
     configure_security,
     configure_vlans,
@@ -72,6 +76,10 @@ POLICIES = [
     {
         "title": "VLAN 分区",
         "body": "各区域使用 access VLAN 接入，接入交换机、核心交换机和路由器之间通过 trunk 承载多 VLAN。",
+    },
+    {
+        "title": "多校区 VPN",
+        "body": "嘉定、延长和东京校区通过 GRE VPN 隧道接入宝山主校区，可访问服务器区，访问人事/财务敏感区会被阻断并审计。",
     },
 ]
 
@@ -121,10 +129,67 @@ def host_catalog() -> dict[str, dict[str, str]]:
                 "vlan": str(area["vlan"]),
                 "dhcp": is_dhcp_host(ip),
             }
+    for campus_id, campus in BRANCH_CAMPUSES.items():
+        host, ip = campus["host"]
+        catalog[host] = {
+            "id": host,
+            "ip": host_display_ip(ip),
+            "areaId": campus_id,
+            "areaLabel": campus["label"],
+            "vlan": "VPN",
+            "dhcp": False,
+        }
     return catalog
 
 
 HOSTS = host_catalog()
+
+
+def campus_payload(running: bool) -> list[dict[str, Any]]:
+    campuses = [
+        {
+            "id": "baoshan",
+            "label": "宝山主校区",
+            "type": "hub",
+            "subnet": "10.10.0.0/16",
+            "gateway": "r_core",
+            "representative": "stu1",
+            "status": "online" if running else "offline",
+        }
+    ]
+    for campus_id, campus in BRANCH_CAMPUSES.items():
+        host, ip = campus["host"]
+        campuses.append(
+            {
+                "id": campus_id,
+                "label": campus["label"],
+                "type": "branch",
+                "subnet": campus["subnet"],
+                "gateway": cidr_address(campus["gateway"]),
+                "representative": host,
+                "representativeIp": host_display_ip(ip),
+                "status": "online" if running else "offline",
+            }
+        )
+    return campuses
+
+
+def vpn_static_payload() -> list[dict[str, Any]]:
+    tunnels = []
+    for tunnel_id, tunnel in VPN_TUNNELS.items():
+        tunnels.append(
+            {
+                "id": tunnel_id,
+                "label": tunnel["label"],
+                "hub": "baoshan",
+                "campusId": tunnel["campusId"],
+                "campusLabel": tunnel["campusLabel"],
+                "network": tunnel["network"],
+                "coreIntf": tunnel["coreIntf"],
+                "branchIntf": tunnel["branchIntf"],
+            }
+        )
+    return tunnels
 
 
 def topology_payload(running: bool) -> dict[str, Any]:
@@ -160,6 +225,9 @@ def topology_payload(running: bool) -> dict[str, Any]:
         "areas": areas,
         "router": {"id": "r_core", "label": "核心路由", "ip": "多接口网关"},
         "coreSwitch": {"id": "s_core", "label": "核心交换", "mode": "trunk"},
+        "wanSwitch": {"id": "s_wan", "label": "WAN/VPN 汇聚", "mode": "wan"},
+        "campuses": campus_payload(running),
+        "vpnTunnels": vpn_static_payload(),
         "policies": POLICIES,
         "messageTemplates": MESSAGE_TEMPLATES,
         "dnsRecords": DNS_RECORDS,
@@ -213,17 +281,74 @@ class CampusLiveRuntime:
             )
         return summary
 
+    def vpn_tunnel_status(self) -> list[dict[str, Any]]:
+        tunnels = vpn_static_payload()
+        if self.net is None:
+            for tunnel in tunnels:
+                tunnel.update({"state": "offline", "ok": False, "detail": "拓扑未启动"})
+            return tunnels
+
+        core_router = self.net.get("r_core")
+        for tunnel in tunnels:
+            faulted = tunnel["id"] in self.faults
+            exists = core_router.cmd(f"ip link show {tunnel['coreIntf']} >/dev/null 2>&1; echo $?").strip().endswith("0")
+            is_up = exists and not faulted and "state DOWN" not in core_router.cmd(f"ip link show {tunnel['coreIntf']} 2>/dev/null || true")
+            tunnel.update(
+                {
+                    "state": "up" if is_up else "down",
+                    "ok": is_up,
+                    "detail": "GRE tunnel active" if is_up else "VPN tunnel down",
+                }
+            )
+        return tunnels
+
+    def service_status(self) -> list[dict[str, Any]]:
+        if self.net is None:
+            return [
+                {"id": "web", "label": "Web", "ok": False, "detail": "topology offline"},
+                {"id": "ftp", "label": "FTP", "ok": False, "detail": "topology offline"},
+                {"id": "dnsmasq", "label": "DNS/DHCP", "ok": False, "detail": "topology offline"},
+            ]
+
+        web = self.net.get("web")
+        ftp = self.net.get("ftp")
+        router = self.net.get("r_core")
+        web_ok = web.cmd("ss -ltn | grep -q ':80 ' ; echo $?").strip().endswith("0")
+        ftp_ok = ftp.cmd("ss -ltn | grep -q ':21 ' ; echo $?").strip().endswith("0")
+        dns_ok = router.cmd("test -s /tmp/campus_dnsmasq.pid && kill -0 $(cat /tmp/campus_dnsmasq.pid) 2>/dev/null; echo $?").strip().endswith("0")
+        return [
+            {"id": "web", "label": "Web", "ok": web_ok, "detail": "HTTP:80" if web_ok else "not listening"},
+            {"id": "ftp", "label": "FTP", "ok": ftp_ok, "detail": "FTP:21" if ftp_ok else "not listening"},
+            {"id": "dnsmasq", "label": "DNS/DHCP", "ok": dns_ok, "detail": "dnsmasq active" if dns_ok else "dnsmasq stopped"},
+        ]
+
+    def noc_summary(self, vpn_tunnels: list[dict[str, Any]], services: list[dict[str, Any]]) -> dict[str, int]:
+        recent = self.audit[-80:]
+        return {
+            "campusOnline": 4 if self.net is not None else 0,
+            "campusTotal": 4,
+            "vpnUp": sum(1 for tunnel in vpn_tunnels if tunnel.get("ok")),
+            "vpnTotal": len(vpn_tunnels),
+            "serviceUp": sum(1 for service in services if service.get("ok")),
+            "serviceTotal": len(services),
+            "activeFaults": len(self.faults),
+            "highRisk": sum(1 for item in recent if item["level"] == "high"),
+        }
+
     def classify_audit(self, source: str, target: str, action: str, ok: bool) -> tuple[str, str]:
         target = DNS_TARGET_HOSTS.get(target, target)
         source_area = HOSTS.get(source, {}).get("areaId", "")
         target_area = HOSTS.get(target, {}).get("areaId", "")
         sensitive_areas = {"hr", "finance"}
         normal_user_areas = {"student", "teaching", "library"}
+        branch_areas = set(BRANCH_CAMPUSES)
 
         if source_area == "external" and target_area != "external":
             return "high", "外部模拟区访问校园内网，命中边界防护审计规则。"
         if source_area == "guest" and target_area not in {"server", "guest"}:
             return "high", "访客网络访问校园内部区域，命中访客隔离审计规则。"
+        if source_area in branch_areas and target_area in sensitive_areas:
+            return "high", "分校区访问宝山敏感区域，命中跨校区安全隔离规则。"
         if source_area in normal_user_areas and target_area in sensitive_areas:
             return "high", "普通区域访问人事处/财务处，命中敏感区域隔离规则。"
         if not ok and target_area in sensitive_areas:
@@ -232,8 +357,10 @@ class CampusLiveRuntime:
             return "blocked", "访问失败或服务不可达，记录为异常事件。"
         if action == "perf":
             return "normal", "性能测试完成，记录吞吐量审计数据。"
-        if action in {"dhcp", "dns", "fault_down", "fault_up"}:
+        if action in {"dhcp", "dns", "fault_down", "fault_up", "vpn_down", "vpn_up"}:
             return "normal", "网络管理操作已记录到审计日志。"
+        if action in {"vpn_ping", "vpn_web"}:
+            return "normal", "跨校区 VPN 业务访问符合当前网络策略。"
         return "normal", "业务访问符合当前网络策略。"
 
     def log_audit(self, action: str, source: str, target: str, ok: bool, detail: str = "") -> dict[str, Any]:
@@ -263,8 +390,14 @@ class CampusLiveRuntime:
 
     def status(self) -> dict[str, Any]:
         with self.lock:
+            vpn_tunnels = self.vpn_tunnel_status()
+            services = self.service_status()
             return {
                 **topology_payload(self.net is not None),
+                "campuses": campus_payload(self.net is not None),
+                "vpnTunnels": vpn_tunnels,
+                "serviceStatus": services,
+                "nocSummary": self.noc_summary(vpn_tunnels, services),
                 "startedAt": self.started_at,
                 "events": self.events[-12:],
                 "audit": self.audit[-16:],
@@ -286,6 +419,7 @@ class CampusLiveRuntime:
             net.start()
             configure_vlans(net)
             configure_dynamic_hosts(net)
+            configure_branch_campuses(net)
             configure_security(net.get("r_core"))
             start_services(net)
             self.net = net
@@ -322,6 +456,8 @@ class CampusLiveRuntime:
         if host_id not in HOSTS:
             raise ValueError(f"未知主机：{host_id}")
         area_id = HOSTS[host_id]["areaId"]
+        if area_id in BRANCH_CAMPUSES:
+            return cidr_address(BRANCH_CAMPUSES[area_id]["vpn"]["coreIp"])
         return AREAS[area_id]["gateway"].split("/")[0]
 
     def host(self, host_id: str):
@@ -527,14 +663,65 @@ class CampusLiveRuntime:
             "auditReason": audit["reason"],
         }
 
-    def ping(self, source: str, target: str) -> dict[str, Any]:
+    def vpn_path(self, target: str) -> list[str]:
+        tunnel = VPN_TUNNELS[target]
+        campus = BRANCH_CAMPUSES[tunnel["campusId"]]
+        return ["r_core", "s_wan", campus["router"]]
+
+    def set_vpn_fault(self, action: str, target: str) -> dict[str, Any]:
+        self.require_net()
+        if target not in VPN_TUNNELS:
+            raise ValueError(f"未知 VPN 隧道：{target}")
+
+        make_down = action == "vpn_down"
+        tunnel = VPN_TUNNELS[target]
+        campus = BRANCH_CAMPUSES[tunnel["campusId"]]
+        core_router = self.net.get("r_core")
+        branch_router = self.net.get(campus["router"])
+        state = "down" if make_down else "up"
+        core_router.cmd(f"ip link set {tunnel['coreIntf']} {state}")
+        branch_router.cmd(f"ip link set {tunnel['branchIntf']} {state}")
+
+        detail = f"{tunnel['label']} {tunnel['network']}"
+        if make_down:
+            self.faults[target] = {
+                "target": target,
+                "type": "vpn",
+                "detail": detail,
+                "state": "down",
+                "time": time.strftime("%H:%M:%S"),
+            }
+        else:
+            self.faults.pop(target, None)
+
+        ok = True
+        self.log_event("vpn", f"{'断开' if make_down else '恢复'} VPN：{detail}", ok)
+        audit = self.log_audit(action, "operator", target, ok, detail)
+        return {
+            "action": action,
+            "source": "operator",
+            "target": target,
+            "targetIp": "",
+            "ok": ok,
+            "rc": 0,
+            "command": f"ip link set {tunnel['coreIntf']} {state}; ip link set {tunnel['branchIntf']} {state}",
+            "output": f"{'已断开' if make_down else '已恢复'} {detail}",
+            "faults": list(self.faults.values()),
+            "path": self.vpn_path(target),
+            "tunnel": {**tunnel, "state": state},
+            "auditLevel": audit["level"],
+            "auditReason": audit["reason"],
+        }
+
+    def ping(self, source: str, target: str, action: str = "ping") -> dict[str, Any]:
         target_ip = self.host_ip(target)
         result = self.run_host_command(source, f"ping -c 2 -W 1 {target_ip}", timeout_hint=5)
-        self.log_event("ping", f"{source} ping {target} {'成功' if result['ok'] else '失败'}", result["ok"])
-        audit = self.log_audit("ping", source, target, result["ok"], result["output"][:160])
-        return {"action": "ping", "source": source, "target": target, "targetIp": target_ip, "auditLevel": audit["level"], "auditReason": audit["reason"], **result}
+        event_kind = "vpn" if action == "vpn_ping" else "ping"
+        self.log_event(event_kind, f"{source} ping {target} {'成功' if result['ok'] else '失败'}", result["ok"])
+        audit = self.log_audit(action, source, target, result["ok"], result["output"][:160])
+        return {"action": action, "source": source, "target": target, "targetIp": target_ip, "auditLevel": audit["level"], "auditReason": audit["reason"], **result}
 
-    def web(self, source: str, target: str) -> dict[str, Any]:
+    def web(self, source: str, target: str, action: str = "web") -> dict[str, Any]:
         target_ip, resolution = self.service_target_ip(source, target)
         self.ensure_application_service(target)
         fetch_code = (
@@ -546,10 +733,10 @@ class CampusLiveRuntime:
         if result["ok"]:
             result["rawOutputBase64"] = result["output"]
             result["output"] = base64.b64decode(result["output"].encode("ascii")).decode("utf-8", errors="replace")
-        self.log_event("web", f"{source} HTTP 访问 {target} {'成功' if result['ok'] else '失败'}", result["ok"])
-        audit = self.log_audit("web", source, target, result["ok"], result["output"][:160])
+        self.log_event("vpn" if action == "vpn_web" else "web", f"{source} HTTP 访问 {target} {'成功' if result['ok'] else '失败'}", result["ok"])
+        audit = self.log_audit(action, source, target, result["ok"], result["output"][:160])
         return {
-            "action": "web",
+            "action": action,
             "source": source,
             "target": target,
             "targetIp": target_ip,
@@ -725,6 +912,12 @@ class CampusLiveRuntime:
                 return self.resolve_domain(source, target)
             if action in {"fault_down", "fault_up"}:
                 return self.set_fault(action, target)
+            if action in {"vpn_down", "vpn_up"}:
+                return self.set_vpn_fault(action, target)
+            if action == "vpn_ping":
+                return self.ping(source, target, action="vpn_ping")
+            if action == "vpn_web":
+                return self.web(source, target, action="vpn_web")
             if action == "ping":
                 return self.ping(source, target)
             if action == "web":
@@ -753,6 +946,11 @@ class CampusLiveRuntime:
                 ("学生主机解析 Web 校园域名", "dns", "stu1", "web.campus.local", True),
                 ("访客通过域名访问 Web", "web", "guest1", "web.campus.local", True),
                 ("访客访问办公楼被隔离", "ping", "guest1", "office1", False),
+                ("宝山访问嘉定校区", "vpn_ping", "stu1", "jd1", True),
+                ("嘉定访问宝山 Web", "vpn_web", "jd1", "web", True),
+                ("延长访问宝山 FTP", "ftp", "yc1", "ftp", True),
+                ("东京访问宝山 Web", "vpn_web", "tokyo1", "web", True),
+                ("嘉定访问人事处被限制", "vpn_ping", "jd1", "hr1", False),
                 ("办公楼向财务处发送业务消息", "message", "office1", "fin1", True),
                 ("学生向人事处发送消息被拦截", "message", "stu1", "hr1", False),
             ]
@@ -770,6 +968,10 @@ class CampusLiveRuntime:
                     result = self.dhcp(source)
                 elif action == "dns":
                     result = self.resolve_domain(source, target)
+                elif action == "vpn_ping":
+                    result = self.ping(source, target, action="vpn_ping")
+                elif action == "vpn_web":
+                    result = self.web(source, target, action="vpn_web")
                 else:
                     raise ValueError(f"未知测试操作：{action}")
                 passed = bool(result["ok"]) == expect_ok

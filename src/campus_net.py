@@ -37,6 +37,10 @@ FTP_ROOT = SERVICES_DIR / "ftp_root"
 FTP_SERVER = SERVICES_DIR / "simple_ftp_server.py"
 ROUTER_TRUNK_INTF = "r_core-eth0"
 CORE_ROUTER_PORT = "s_core-eth15"
+WAN_SWITCH = "s_wan"
+CORE_WAN_INTF = "r_core-wan"
+CORE_WAN_IP = "198.18.0.1/24"
+CORE_WAN_ADDR = "198.18.0.1"
 
 
 DNS_RECORDS = {
@@ -155,11 +159,95 @@ AREAS = {
 }
 
 
+BRANCH_CAMPUSES = {
+    "jiading": {
+        "label": "嘉定校区",
+        "router": "r_jiading",
+        "switch": "s_jiading",
+        "subnet": "10.20.10.0/24",
+        "gateway": "10.20.10.1/24",
+        "host": ("jd1", "10.20.10.11/24"),
+        "lanIntf": "r_jd-lan",
+        "wanIntf": "r_jd-wan",
+        "switchRouterPort": "s_jd-r",
+        "switchHostPort": "s_jd-h1",
+        "wanIp": "198.18.0.11/24",
+        "delay": "8ms",
+        "vpn": {
+            "id": "vpn_jiading",
+            "label": "宝山-嘉定 VPN",
+            "coreIntf": "gre_jiading",
+            "branchIntf": "gre_baoshan",
+            "coreIp": "172.16.0.1/30",
+            "branchIp": "172.16.0.2/30",
+            "network": "172.16.0.0/30",
+        },
+    },
+    "yanchang": {
+        "label": "延长校区",
+        "router": "r_yanchang",
+        "switch": "s_yanchang",
+        "subnet": "10.30.10.0/24",
+        "gateway": "10.30.10.1/24",
+        "host": ("yc1", "10.30.10.11/24"),
+        "lanIntf": "r_yc-lan",
+        "wanIntf": "r_yc-wan",
+        "switchRouterPort": "s_yc-r",
+        "switchHostPort": "s_yc-h1",
+        "wanIp": "198.18.0.21/24",
+        "delay": "12ms",
+        "vpn": {
+            "id": "vpn_yanchang",
+            "label": "宝山-延长 VPN",
+            "coreIntf": "gre_yanchang",
+            "branchIntf": "gre_baoshan",
+            "coreIp": "172.16.0.5/30",
+            "branchIp": "172.16.0.6/30",
+            "network": "172.16.0.4/30",
+        },
+    },
+    "tokyo": {
+        "label": "日本东京校区",
+        "router": "r_tokyo",
+        "switch": "s_tokyo",
+        "subnet": "10.40.10.0/24",
+        "gateway": "10.40.10.1/24",
+        "host": ("tokyo1", "10.40.10.11/24"),
+        "lanIntf": "r_tyo-lan",
+        "wanIntf": "r_tyo-wan",
+        "switchRouterPort": "s_tyo-r",
+        "switchHostPort": "s_tyo-h1",
+        "wanIp": "198.18.0.31/24",
+        "delay": "80ms",
+        "vpn": {
+            "id": "vpn_tokyo",
+            "label": "宝山-东京 VPN",
+            "coreIntf": "gre_tokyo",
+            "branchIntf": "gre_baoshan",
+            "coreIp": "172.16.0.9/30",
+            "branchIp": "172.16.0.10/30",
+            "network": "172.16.0.8/30",
+        },
+    },
+}
+
+VPN_TUNNELS = {
+    campus["vpn"]["id"]: {**campus["vpn"], "campusId": campus_id, "campusLabel": campus["label"]}
+    for campus_id, campus in BRANCH_CAMPUSES.items()
+}
+
+
 HOST_GATEWAYS = {
     host: area["gateway"].split("/")[0]
     for area in AREAS.values()
     for host, _ip in area["hosts"]
 }
+HOST_GATEWAYS.update(
+    {
+        campus["host"][0]: campus["gateway"].split("/")[0]
+        for campus in BRANCH_CAMPUSES.values()
+    }
+)
 
 
 def is_dhcp_host(host_ip: str) -> bool:
@@ -180,6 +268,12 @@ def dhcp_pool(area: dict) -> tuple[str, str, str]:
     network = ipaddress.ip_network(str(area["subnet"]))
     prefix = str(network.network_address).rsplit(".", 1)[0]
     return f"{prefix}.100", f"{prefix}.199", str(network.netmask)
+
+
+def cidr_address(cidr: str) -> str:
+    """Return the address part of an IP/CIDR string."""
+
+    return cidr.split("/")[0]
 
 
 def access_port_name(switch_name: str, host_index: int) -> str:
@@ -209,7 +303,7 @@ def router_vlan_intf(vlan: int | str) -> str:
 def cleanup_legacy_interfaces() -> None:
     """Remove legacy custom veth names left by interrupted older runs."""
 
-    names = ["s_core-r_core", "r_core-t"]
+    names = ["s_core-r_core", "r_core-t", CORE_WAN_INTF, "s_wan-core"]
     for area_key, area in AREAS.items():
         switch_name = area["switch"]
         names.extend([f"{switch_name}-trunk", f"s_core-{area_key}"])
@@ -217,6 +311,16 @@ def cleanup_legacy_interfaces() -> None:
             names.append(f"{switch_name}-{host_name}")
         for host_index, _host in enumerate(area["hosts"], start=1):
             names.append(f"{switch_name}-h{host_index}")
+    for campus_id, campus in BRANCH_CAMPUSES.items():
+        names.extend(
+            [
+                campus["lanIntf"],
+                campus["wanIntf"],
+                campus["switchRouterPort"],
+                campus["switchHostPort"],
+                f"s_wan-{campus_id[:3]}",
+            ]
+        )
     for name in names:
         subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
@@ -233,6 +337,7 @@ class LinuxRouter(Node):
     def terminate(self):  # type: ignore[override]
         self.cmd("iptables -F FORWARD")
         self.cmd("iptables -P FORWARD ACCEPT")
+        self.cmd("for intf in $(ip -o link show | awk -F': ' '/gre_/ {sub(/@.*/, \"\", $2); print $2}'); do ip tunnel del \"$intf\" 2>/dev/null || true; done")
         self.cmd("for intf in $(ip -o link show | awk -F': ' '/r_core-eth0\\./ {print $2}'); do ip link delete \"$intf\" 2>/dev/null || true; done")
         self.cmd("sysctl -w net.ipv4.ip_forward=0")
         super().terminate()
@@ -257,6 +362,22 @@ class CampusTopo(Topo):
             cls=TCLink,
             bw=1000,
             delay="1ms",
+            use_tbf=True,
+        )
+        wan_switch = self.addSwitch(
+            WAN_SWITCH,
+            cls=OVSKernelSwitch,
+            failMode="standalone",
+            dpid="00000000000000ee",
+        )
+        self.addLink(
+            router,
+            wan_switch,
+            intfName1=CORE_WAN_INTF,
+            intfName2="s_wan-core",
+            cls=TCLink,
+            bw=100,
+            delay="5ms",
             use_tbf=True,
         )
 
@@ -290,6 +411,47 @@ class CampusTopo(Topo):
                     delay="1ms",
                     use_tbf=True,
                 )
+
+        for branch_index, (campus_id, campus) in enumerate(BRANCH_CAMPUSES.items(), start=21):
+            branch_router = self.addNode(campus["router"], cls=LinuxRouter, ip=None)
+            branch_switch = self.addSwitch(
+                campus["switch"],
+                cls=OVSKernelSwitch,
+                failMode="standalone",
+                dpid=f"{branch_index:016x}",
+            )
+            host_name, host_ip = campus["host"]
+            gateway_ip = cidr_address(campus["gateway"])
+            branch_host = self.addHost(host_name, ip=host_ip, defaultRoute=f"via {gateway_ip}")
+            self.addLink(
+                branch_router,
+                wan_switch,
+                intfName1=campus["wanIntf"],
+                intfName2=f"s_wan-{campus_id[:3]}",
+                cls=TCLink,
+                bw=100,
+                delay=campus["delay"],
+                use_tbf=True,
+            )
+            self.addLink(
+                branch_router,
+                branch_switch,
+                intfName1=campus["lanIntf"],
+                intfName2=campus["switchRouterPort"],
+                cls=TCLink,
+                bw=100,
+                delay="1ms",
+                use_tbf=True,
+            )
+            self.addLink(
+                branch_host,
+                branch_switch,
+                intfName2=campus["switchHostPort"],
+                cls=TCLink,
+                bw=100,
+                delay="1ms",
+                use_tbf=True,
+            )
 
 
 def configure_vlans(net: Mininet) -> None:
@@ -339,6 +501,59 @@ def verify_vlan_config(net: Mininet) -> bool:
     return all(checks)
 
 
+def configure_branch_campuses(net: Mininet) -> None:
+    """Configure branch campus WAN/LAN addresses, GRE VPN tunnels, and routes."""
+
+    core_router = net.get("r_core")
+    core_router.cmd(f"ip addr flush dev {CORE_WAN_INTF}")
+    core_router.cmd(f"ip addr add {CORE_WAN_IP} dev {CORE_WAN_INTF}")
+    core_router.cmd(f"ip link set {CORE_WAN_INTF} up")
+
+    for campus in BRANCH_CAMPUSES.values():
+        router = net.get(campus["router"])
+        host_name, _host_ip = campus["host"]
+        host = net.get(host_name)
+        vpn = campus["vpn"]
+        campus_wan_addr = cidr_address(campus["wanIp"])
+        core_tunnel_addr = cidr_address(vpn["coreIp"])
+        branch_tunnel_addr = cidr_address(vpn["branchIp"])
+
+        router.cmd(f"ip addr flush dev {campus['wanIntf']}")
+        router.cmd(f"ip addr add {campus['wanIp']} dev {campus['wanIntf']}")
+        router.cmd(f"ip link set {campus['wanIntf']} up")
+        router.cmd(f"ip addr flush dev {campus['lanIntf']}")
+        router.cmd(f"ip addr add {campus['gateway']} dev {campus['lanIntf']}")
+        router.cmd(f"ip link set {campus['lanIntf']} up")
+        host.cmd(f"ip route replace default via {cidr_address(campus['gateway'])}")
+
+        core_router.cmd(f"ip tunnel del {vpn['coreIntf']} 2>/dev/null || true")
+        router.cmd(f"ip tunnel del {vpn['branchIntf']} 2>/dev/null || true")
+        core_router.cmd(
+            f"ip tunnel add {vpn['coreIntf']} mode gre local {CORE_WAN_ADDR} "
+            f"remote {campus_wan_addr} ttl 255"
+        )
+        router.cmd(
+            f"ip tunnel add {vpn['branchIntf']} mode gre local {campus_wan_addr} "
+            f"remote {CORE_WAN_ADDR} ttl 255"
+        )
+        core_router.cmd(f"ip addr add {vpn['coreIp']} dev {vpn['coreIntf']}")
+        router.cmd(f"ip addr add {vpn['branchIp']} dev {vpn['branchIntf']}")
+        core_router.cmd(f"ip link set {vpn['coreIntf']} up")
+        router.cmd(f"ip link set {vpn['branchIntf']} up")
+        core_router.cmd(f"ip route replace {campus['subnet']} via {branch_tunnel_addr} dev {vpn['coreIntf']}")
+        router.cmd(f"ip route replace 10.10.0.0/16 via {core_tunnel_addr} dev {vpn['branchIntf']}")
+
+
+def verify_vpn_config(net: Mininet) -> bool:
+    """Return True when all GRE VPN tunnel interfaces exist on the hub router."""
+
+    core_router = net.get("r_core")
+    checks = []
+    for tunnel in VPN_TUNNELS.values():
+        checks.append(core_router.cmd(f"ip link show {tunnel['coreIntf']} >/dev/null 2>&1; echo $?").strip() == "0")
+    return all(checks)
+
+
 def configure_security(router: Node) -> None:
     """Apply ACL policies on the core router."""
 
@@ -360,6 +575,9 @@ def configure_security(router: Node) -> None:
     for source in normal_user_subnets:
         for dest in sensitive_subnets:
             router.cmd(f"iptables -A FORWARD -s {source} -d {dest} -j REJECT")
+    for campus in BRANCH_CAMPUSES.values():
+        for dest in sensitive_subnets:
+            router.cmd(f"iptables -A FORWARD -s {campus['subnet']} -d {dest} -j REJECT")
 
     # Explicit service access rules are kept for readability and report evidence.
     router.cmd("iptables -A FORWARD -s 10.10.0.0/16 -d 10.10.100.0/24 -p tcp -m multiport --dports 80,21 -j ACCEPT")
@@ -415,6 +633,8 @@ def start_dns_dhcp_services(net: Mininet) -> None:
                 f"dhcp-option=tag:{tag},option:domain-name,campus.local",
             ]
         )
+    for campus in BRANCH_CAMPUSES.values():
+        config_lines.append(f"interface={campus['vpn']['coreIntf']}")
 
     conf = "\n".join(config_lines) + "\n"
     router.cmd(f"printf %s {shlex.quote(conf)} > /tmp/campus_dnsmasq.conf")
@@ -461,6 +681,11 @@ def print_summary(net: Mininet) -> None:
         info(f"{area['label']}: VLAN {area['vlan']}, {area['subnet']}, 网关 {area['gateway'].split('/')[0]}\n")
         for host_name, host_ip in area["hosts"]:
             info(f"  - {host_name}: {host_display_ip(host_ip)}\n")
+    info("\n*** 分校区 VPN 示意\n")
+    for campus in BRANCH_CAMPUSES.values():
+        host_name, host_ip = campus["host"]
+        info(f"{campus['label']}: {campus['subnet']}, 网关 {cidr_address(campus['gateway'])}, 代表主机 {host_name}={host_display_ip(host_ip)}\n")
+        info(f"  - {campus['vpn']['label']}: {campus['vpn']['network']} via {campus['vpn']['coreIntf']}\n")
     info("\n*** 服务地址: Web=http://10.10.100.10, FTP=ftp://10.10.100.20/README.txt\n")
     info("*** 敏感区域 ACL: 学生宿舍/教学楼/图书馆 -> 人事处/财务处 被拒绝，办公楼允许访问\n\n")
 
@@ -486,6 +711,8 @@ def run_tests(net: Mininet) -> int:
     info("\n*** 自动测试开始\n")
     vlan_ok = verify_vlan_config(net)
     info(f"[{'PASS' if vlan_ok else 'FAIL'}] VLAN access/trunk 与路由子接口配置检查\n")
+    vpn_ok = verify_vpn_config(net)
+    info(f"[{'PASS' if vpn_ok else 'FAIL'}] 四校区 GRE VPN 隧道配置检查\n")
     cases = [
         ("宿舍区内部二层互通", "stu1", "ping -c 1 -W 1 10.10.10.12", True),
         ("宿舍区到教学楼三层互通", "stu1", "ping -c 1 -W 1 10.10.20.11", True),
@@ -500,12 +727,17 @@ def run_tests(net: Mininet) -> int:
         ("学生主机解析 Web 校园域名", "stu1", "dig +short @10.10.10.1 web.campus.local | grep -q 10.10.100.10", True),
         ("访客访问 Web 服务允许", "guest1", "curl -fsS http://10.10.100.10", True),
         ("访客访问办公楼被隔离", "guest1", "ping -c 1 -W 1 10.10.40.11", False),
+        ("宝山访问嘉定校区", "stu1", "ping -c 1 -W 1 10.20.10.11", True),
+        ("嘉定访问宝山 Web", "jd1", "curl -fsS http://10.10.100.10", True),
+        ("延长访问宝山 FTP", "yc1", "curl -fsS ftp://10.10.100.20/README.txt", True),
+        ("东京访问宝山 Web", "tokyo1", "curl -fsS http://10.10.100.10", True),
+        ("嘉定访问人事处被限制", "jd1", "ping -c 1 -W 1 10.10.50.11", False),
     ]
     results = [run_case(net, *case) for case in cases]
-    passed = sum(1 for item in results if item) + (1 if vlan_ok else 0)
-    total = len(results) + 1
+    passed = sum(1 for item in results if item) + (1 if vlan_ok else 0) + (1 if vpn_ok else 0)
+    total = len(results) + 2
     info(f"*** 自动测试完成: {passed}/{total} 通过\n")
-    return 0 if vlan_ok and all(results) else 1
+    return 0 if vlan_ok and vpn_ok and all(results) else 1
 
 
 def build_net() -> Mininet:
@@ -541,6 +773,7 @@ def main() -> int:
         net.start()
         configure_vlans(net)
         configure_dynamic_hosts(net)
+        configure_branch_campuses(net)
         configure_security(net.get("r_core"))
         start_services(net)
         print_summary(net)

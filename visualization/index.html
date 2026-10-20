@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>校园网实时联动控制台</title>
-  <link rel="stylesheet" href="styles.css?v=live5">
+  <link rel="stylesheet" href="styles.css?v=live6">
 </head>
 <body>
   <header class="topbar">
@@ -32,10 +32,11 @@
           <span><i class="legend-dot switch"></i>接入交换</span>
           <span><i class="legend-dot host"></i>主机</span>
           <span><i class="legend-dot server"></i>服务器</span>
+          <span><i class="legend-dot vpn"></i>VPN/WAN</span>
           <span><i class="legend-dot denied"></i>失败/阻断</span>
         </div>
       </div>
-      <svg id="topologySvg" viewBox="0 0 1280 800" role="img" aria-label="校园网拓扑图"></svg>
+      <svg id="topologySvg" viewBox="0 0 1600 920" role="img" aria-label="校园网拓扑图"></svg>
     </section>
 
     <aside class="control-panel" aria-label="实时操作">
@@ -60,6 +61,10 @@
             <option value="dns">DNS 域名解析</option>
             <option value="fault_down">制造故障</option>
             <option value="fault_up">恢复故障</option>
+            <option value="vpn_ping">VPN 跨校区 ping</option>
+            <option value="vpn_web">VPN 访问 Web</option>
+            <option value="vpn_down">断开 VPN</option>
+            <option value="vpn_up">恢复 VPN</option>
           </select>
         </label>
         <button id="runAction" type="button">执行真实测试</button>
@@ -128,6 +133,26 @@
       <div id="eventLog" class="event-log"></div>
     </section>
 
+    <section class="output-panel noc-panel">
+      <div class="panel-head compact">
+        <div>
+          <h2>模拟网管控制台</h2>
+          <p>汇总四校区、VPN 隧道、关键服务、故障和安全告警。</p>
+        </div>
+      </div>
+      <div id="nocSummary" class="noc-summary"></div>
+      <div class="noc-columns">
+        <div>
+          <h3>校区状态</h3>
+          <div id="campusStatus" class="status-list compact-list"></div>
+        </div>
+        <div>
+          <h3>VPN 与服务</h3>
+          <div id="vpnStatus" class="status-list compact-list"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="output-panel">
       <div class="panel-head compact">
         <div>
@@ -176,6 +201,6 @@
     <div id="policyGrid" class="policy-grid"></div>
   </section>
 
-  <script src="app.js?v=live5"></script>
+  <script src="app.js?v=live6"></script>
 </body>
 </html>
